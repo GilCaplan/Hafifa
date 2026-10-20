@@ -6,8 +6,17 @@ import pygame
 from mutagen import MutagenError
 from mutagen.easyid3 import EasyID3
 
+WINDOW_SIZE = "500x500"
+WINDOW_TITLE = "MP3 Music Player"
+TEXT_COLOR = "Black"
+STATUS_FONT = ("Helvetica 12 bold italic", 10)
+STATUS_BG = "ivory2"
+BUTTON_BG = "AntiqueWhite1"
+BUTTON_WIDTH = 40
+SONG_LIST_WIDTH = 60
 
-def read_tags(path):
+
+def read_tags(path) -> tuple[str, str]:
     """Return (title, artist) for a song, falling back to the file name if it has no tags."""
     try:
         song = EasyID3(path)
@@ -18,12 +27,15 @@ def read_tags(path):
 
 class MusicPlayer:
     def __init__(self):
-        self.playlist = []
+        self.playlist = [] # no current UI design more multiple playlists so keep individual for now.
         self.is_paused = False
         self.current_index = 0
         self.song_end_event = pygame.USEREVENT + 1
         self.song_list_box = ""
         self.status_label = ""
+
+    def add_songs(self, paths):
+        self.playlist.extend(paths)
 
     def play_song(self):
         if not self.playlist:
@@ -59,7 +71,7 @@ class MusicPlayer:
         self.current_index = self.previous_index()
         self.play_song()
 
-    def now_playing_text(self):
+    def now_playing_text(self) -> str:
         title, artist = read_tags(self.playlist[self.current_index])
         return f"Now playing {self.current_index + 1} {title}, artist {artist}"
 
@@ -68,17 +80,13 @@ class MusicPlayer:
             if event.type == self.song_end_event:
                 self.next_song()
 
-    def next_index(self):
-        if self.current_index + 2 <= len(self.playlist):
-            return self.current_index + 1
-        else:
-            return 0
+    def next_index(self) -> int:
+        idx = self.current_index
+        return idx + 1 if idx + 2 <= len(self.playlist) else 0
 
-    def previous_index(self):
-        if self.current_index - 1 >= 0:
-            return self.current_index - 1
-        else:
-            return len(self.playlist) - 1
+    def previous_index(self) -> int:
+        idx = self.current_index - 1
+        return idx if idx >= 0 else len(self.playlist) - 1
 
 
 class PlayerWindow(tk.Frame):
@@ -87,93 +95,64 @@ class PlayerWindow(tk.Frame):
         self.music_player = MusicPlayer()
         self.grid()
 
-        buttons = {
-            "add": PlayerButton(
-                self, self.music_player, text="ADD TO LIST", command="add_songs_button"
-            ),
-            "play": PlayerButton(
-                self, self.music_player, text="PLAY SONG", command="play_song_button"
-            ),
-            "pause": PlayerButton(
-                self,
-                self.music_player,
-                text="PAUSE/UNPAUSE",
-                command="toggle_pause_button",
-            ),
-            "prev": PlayerButton(
-                self,
-                self.music_player,
-                text="PREVIOUS SONG",
-                command="previous_song_button",
-            ),
-            "next": PlayerButton(
-                self, self.music_player, text="NEXT SONG", command="next_song_button"
-            ),
-        }
+        buttons = self._create_buttons()
 
         self.music_player.status_label = tk.Label(
-            self, fg="Black", font=("Helvetica 12 bold italic", 10), bg="ivory2"
+            self, fg=TEXT_COLOR, font=STATUS_FONT, bg=STATUS_BG
         )
-        self.music_player.song_list_box = tk.Text(self, wrap=tk.WORD, width=60)
-        for row, action in enumerate(["add", "play", "pause", "prev", "next"]):
-            buttons[action].widget.grid(row=row, column=0)
+        self.music_player.song_list_box = tk.Text(
+            self, wrap=tk.WORD, width=SONG_LIST_WIDTH
+        )
+        for row, button in enumerate(buttons):
+            button.grid(row=row, column=0)
 
         self.music_player.status_label.grid(row=6, column=0)
         self.music_player.song_list_box.grid(row=8, column=0)
 
+    def _create_buttons(self) -> list[tk.Button]:
+        actions = (
+            ("ADD TO LIST", self.add_songs),
+            ("PLAY SONG", self.music_player.play_song),
+            ("PAUSE/UNPAUSE", self.music_player.toggle_pause),
+            ("PREVIOUS SONG", self.music_player.previous_song),
+            ("NEXT SONG", self.music_player.next_song),
+        )
+        return [
+            tk.Button(self, text=text, command=action, bg=BUTTON_BG, width=BUTTON_WIDTH)
+            for text, action in actions
+        ]
 
-class PlayerButton:
-    def __init__(
-        self, master, music_player, text, command, bg="AntiqueWhite1", width=40
-    ):
-        self.music_player = music_player
-        match command:
-            case "add_songs_button":
-                action = self.add_songs_button
-            case "play_song_button":
-                action = self.play_song_button
-            case "toggle_pause_button":
-                action = self.toggle_pause_button
-            case "previous_song_button":
-                action = self.previous_song_button
-            case "next_song_button":
-                action = self.next_song_button
-            case _:
-                raise ValueError(f"Unknown command: {command}")
-        self.widget = tk.Button(master, text=text, command=action, bg=bg, width=width)
+    def add_songs(self):
+        paths = askopenfilenames()
+        self.music_player.add_songs(paths)
+        self.refresh_song_list()
 
-    def add_songs_button(self):
-        selected_paths = askopenfilenames()
-        for song_path in selected_paths:
-            self.music_player.playlist.append(song_path)
-        self.music_player.song_list_box.delete(0.0, tk.END)
-
+    def refresh_song_list(self):
+        song_list_box = self.music_player.song_list_box
+        song_list_box.delete(0.0, tk.END)
         for number, song_path in enumerate(self.music_player.playlist, start=1):
             title, artist = read_tags(song_path)
-            song_line = f"{number} : {title}, {artist}"
-            self.music_player.song_list_box.insert(tk.END, song_line + "\n")
-
-    def play_song_button(self):
-        self.music_player.play_song()
-
-    def toggle_pause_button(self):
-        self.music_player.toggle_pause()
-
-    def next_song_button(self):
-        self.music_player.next_song()
-
-    def previous_song_button(self):
-        self.music_player.previous_song()
+            song_list_box.insert(tk.END, f"{number} : {title}, {artist}\n")
 
 
-window = tk.Tk()
-window.geometry("500x500")
-window.title("MP3 Music Player")
-pygame.init()
+def init_app() -> PlayerWindow:
+    window = tk.Tk()
+    window.geometry(WINDOW_SIZE)
+    window.title(WINDOW_TITLE)
+    pygame.init()
+    return PlayerWindow(window)
 
-app = PlayerWindow(window)
 
-while True:
-    # runs mainloop of program
-    app.music_player.check_song_end()
-    app.update()
+def run(app):
+    while True:
+        app.music_player.check_song_end()
+        app.update()
+
+
+def main():
+    app = init_app()
+    run(app)
+
+
+if __name__ == "__main__":
+    main()
