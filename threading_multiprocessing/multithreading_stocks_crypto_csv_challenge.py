@@ -1,13 +1,14 @@
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
-import yfinance as yf
-from yfinance.exceptions import YFRateLimitError
-import pandas as pd
 import os
 import time
-from dotenv import load_dotenv
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from functools import partial
 from pathlib import Path
+
+import pandas as pd
+import yfinance as yf
+from dotenv import load_dotenv
+from yfinance.exceptions import YFRateLimitError
 
 load_dotenv()
 
@@ -25,6 +26,7 @@ MARKET_CLOSE_HOUR = 16
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
 
+
 def init_csv():
     """Create the CSV with only the header row, overwriting any previous run."""
     pd.DataFrame(columns=COLUMNS).to_csv(PATH, index=False)
@@ -41,10 +43,12 @@ def fetch_candle(ticker, hour):
     """Return the 1-hour candle starting at hour, or an empty DataFrame if it can't be fetched."""
     for attempt in range(MAX_RETRIES):
         try:
-            return yf.Ticker(ticker).history(start=hour, end=hour + timedelta(hours=1), interval="1h")
+            return yf.Ticker(ticker).history(
+                start=hour, end=hour + timedelta(hours=1), interval="1h"
+            )
         except YFRateLimitError:
-            time.sleep(RETRY_DELAY_SECONDS * 2 ** attempt)
-        except Exception as e:
+            time.sleep(RETRY_DELAY_SECONDS * 2**attempt)
+        except Exception as e:  # noqa: BLE001
             print(f"{ticker} {hour}: {e}")
             break
     return pd.DataFrame()
