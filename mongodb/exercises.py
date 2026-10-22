@@ -1,7 +1,13 @@
+import logging
 from functools import cache
 
 from pymongo import *
+from pymongo.errors import ServerSelectionTimeoutError
+from pymongo.uri_parser import parse_uri
+
 from consts import *
+
+logger = logging.getLogger(__name__)
 
 def q13(restaurants_db):
     """
@@ -115,23 +121,39 @@ def q85(restaurants_db):
 
 @cache
 def get_client():
-    return MongoClient(MONGO_URI)
+    hosts = ", ".join(f"{host}:{port}" for host, port in parse_uri(MONGO_URI)["nodelist"])
+    logger.info("Connecting to MongoDB at %s", hosts)
+    client = MongoClient(MONGO_URI)
+    client.admin.command("ping")
+    return client
 
 
 def load_db():
+    logger.info("Using collection %s.%s", DB_NAME, COLLECTION_NAME)
     return get_client()[DB_NAME][COLLECTION_NAME]
 
 def main():
-    db = load_db()
+    try:
+        db = load_db()
+    except ServerSelectionTimeoutError as e:
+        logger.error("Could not reach MongoDB: %s", e)
+        return
     # (q13, q31, q48, q59, q85)
     for exc_func in (q13, q31, q48, q59, q85):
+        logger.info("Running %s", exc_func.__name__)
         results = exc_func(db)
         if results is None:
             continue
+        docs = list(results)
+        logger.info("%s returned %d documents", exc_func.__name__, len(docs))
         print(f"\n{exc_func.__name__} exercise \n")
-        for doc in list(results)[:10]:
+        for doc in docs[:10]:
             print(doc)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
     main()
