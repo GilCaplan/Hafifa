@@ -16,14 +16,6 @@ with open(f"{PATH}/urls.input") as f:
     urls = f.read().split()
 
 
-async def get_html(page):
-    """
-    HTML Content: Extract all the HTML content of the page (as a string).
-    This should be saved in the json file under the key "html".
-    """
-    return await page.content()
-
-
 def get_resources(page):
     """
     Page Resources: List all URLs that were loaded during the page load (such as images, external links, etc.).
@@ -33,6 +25,12 @@ def get_resources(page):
     page.on("request", lambda request: resources.append(request.url))
     return resources
 
+async def get_html(page):
+    """
+    HTML Content: Extract all the HTML content of the page (as a string).
+    This should be saved in the json file under the key "html".
+    """
+    return await page.content()
 
 async def save_screenshot(page, path):
     """
@@ -40,14 +38,12 @@ async def save_screenshot(page, path):
     """
     await page.screenshot(path=path)
 
-
 def encode_image_base64(path):
     """
     Base64 Encoded Image: Convert the saved screenshot to a base64 encoded string.
     This should be saved in the json file under the key "screenshot".
     """
     return base64.b64encode(Path(path).read_bytes()).decode("ascii")
-
 
 def save_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
@@ -66,10 +62,12 @@ async def scrape_url(browser, semaphore, i, url):
             html = await get_html(page)
             screenshot_path = url_dir / "screenshot.png"
             await save_screenshot(page, screenshot_path)
+            screenshot = encode_image_base64(screenshot_path)
+            
             page_data = {
                 "html": html,
                 "resources": resources,
-                "screenshot": encode_image_base64(screenshot_path),
+                "screenshot": screenshot,
             }
 
             await asyncio.to_thread(save_json, url_dir / "browse.json", page_data)
