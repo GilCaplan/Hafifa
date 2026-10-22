@@ -1,64 +1,24 @@
+import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import partial
-from pathlib import Path
 
-import pandas as pd
-import yfinance as yf
-from dotenv import load_dotenv
-from yfinance.exceptions import YFRateLimitError
+from const import *
+from utils import *
 
-load_dotenv()
-
-BASE_DIR = Path(__file__).parent
-PATH = BASE_DIR / os.environ["DESTINATION_FILE"]
-COLUMNS = ["hour", "ticker", "percentage_change"]
-TICKER_DATES_ENV = {
-    "BTC-USD": "BITCOIN_DATES",
-    "AMZN": "AMAZON_DATES",
-    "GOOGL": "GOOGLE_DATES",
-}
-CRYPTO_TICKERS = {"BTC-USD"}
-MARKET_OPEN_HOUR = 9  # the 9:00 hour contains the 9:30 open
-MARKET_CLOSE_HOUR = 16
-MAX_RETRIES = 3
-RETRY_DELAY_SECONDS = 5
-
-
-def init_csv() -> None:
-    """Create the CSV with only the header row, overwriting any previous run."""
-    pd.DataFrame(columns=COLUMNS).to_csv(PATH, index=False)
-
-
-def append_to_csv(rows: list[list]) -> pd.DataFrame:
-    """Append rows of [hour, ticker, % change] to the CSV and return them as a DataFrame."""
-    df = pd.DataFrame(rows, columns=COLUMNS)
-    df.to_csv(PATH, mode="a", header=False, index=False)
-    return df
-
-
-def fetch_candle(ticker: str, hour: datetime) -> pd.DataFrame:
-    """Return the 1-hour candle starting at hour, or an empty DataFrame if it can't be fetched."""
-    for attempt in range(MAX_RETRIES):
-        try:
-            return yf.Ticker(ticker).history(
-                start=hour, end=hour + timedelta(hours=1), interval="1h"
-            )
-        except YFRateLimitError:
-            time.sleep(RETRY_DELAY_SECONDS * 2**attempt)
-        except Exception as e:  # noqa: BLE001
-            print(f"{ticker} {hour}: {e}")
-            break
-    return pd.DataFrame()
+logger = logging.getLogger(__name__)
 
 
 def is_trading_hour(ticker: str, hour: datetime) -> bool:
     """Crypto trades 24/7; stocks only on weekdays during market hours."""
     if ticker in CRYPTO_TICKERS:
         return True
-    return hour.weekday() < 5 and MARKET_OPEN_HOUR <= hour.hour < MARKET_CLOSE_HOUR
+    return (
+        hour.weekday() < END_OF_WEEK
+        and MARKET_OPEN_HOUR <= hour.hour < MARKET_CLOSE_HOUR
+    )
 
 
 def get_hourly_change(ticker: str, date_str: str) -> list:
@@ -68,6 +28,7 @@ def get_hourly_change(ticker: str, date_str: str) -> list:
         return [hour, ticker, None]
     candle = fetch_candle(ticker, hour)
     if candle.empty:
+        logger.debug("%s %s: no candle data", ticker, hour)
         return [hour, ticker, None]
     open_price = candle["Open"].iloc[0]
     close_price = candle["Close"].iloc[0]
@@ -87,12 +48,26 @@ def get_asset_changes(ticker: str, dates: list[str]) -> list[list]:
 
 def process_asset(ticker: str, dates_env: str) -> None:
     """Fetch the hourly changes for one asset and append them to the shared CSV."""
-    rows = get_asset_changes(ticker, load_dates(dates_env))
-    df = append_to_csv(rows)
-    print(df.head(10))
+    dates = load_dates(dates_env)
+    logger.info("%s: fetching %d hours", ticker, len(dates))
+    start = time.perf_counter()
+    rows = get_asset_changes(ticker, dates)
+    missing = sum(row[2] is None for row in rows)
+    logger.info(
+        "%s: done in %.1fs, %d rows (%d without data)",
+        ticker,
+        time.perf_counter() - start,
+        len(rows),
+        missing,
+    )
+    append_to_csv(rows)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(threadName)s] %(message)s",
+    )
     init_csv()
     for ticker, dates_env in TICKER_DATES_ENV.items():
         process_asset(ticker, dates_env)
