@@ -1,7 +1,7 @@
-from pymongo import *
+from functools import cache
 
-ASC = 1
-DESC = -1
+from pymongo import *
+from consts import *
 
 def q13(restaurants_db):
     """
@@ -113,9 +113,13 @@ def q85(restaurants_db):
     return results
 
 
+@cache
+def get_client():
+    return MongoClient(MONGO_URI)
+
+
 def load_db():
-    client = MongoClient("mongodb://localhost:27017")
-    return client["hafifa"]["restaurants"]
+    return get_client()[DB_NAME][COLLECTION_NAME]
 
 def main():
     db = load_db()
