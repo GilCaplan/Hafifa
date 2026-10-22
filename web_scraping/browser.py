@@ -25,6 +25,7 @@ def get_resources(page):
     page.on("request", lambda request: resources.append(request.url))
     return resources
 
+
 async def get_html(page):
     """
     HTML Content: Extract all the HTML content of the page (as a string).
@@ -32,11 +33,13 @@ async def get_html(page):
     """
     return await page.content()
 
+
 async def save_screenshot(page, path):
     """
     Page Screenshot: Take a screenshot of the first page and save it in the directory as screenshot.png.
     """
     await page.screenshot(path=path)
+
 
 def encode_image_base64(path):
     """
@@ -44,6 +47,7 @@ def encode_image_base64(path):
     This should be saved in the json file under the key "screenshot".
     """
     return base64.b64encode(Path(path).read_bytes()).decode("ascii")
+
 
 def save_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
@@ -63,7 +67,7 @@ async def scrape_url(browser, semaphore, i, url):
             screenshot_path = url_dir / "screenshot.png"
             await save_screenshot(page, screenshot_path)
             screenshot = encode_image_base64(screenshot_path)
-            
+
             page_data = {
                 "html": html,
                 "resources": resources,
