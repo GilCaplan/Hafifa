@@ -1,0 +1,25 @@
+# Ruff settings for the rolling exercise, used by setup/lint.sh (with --config, from the project root,
+# so the paths below are relative to the project root).
+line-length = 120
+target-version = "py313"
+cache-dir = ".cache/ruff"
+
+# calculate_aqi.py is the function given with the exercise, so it is left as provided.
+extend-exclude = ["calculate_aqi.py"]
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings (trailing whitespace, blank lines with spaces)
+    "F",   # pyflakes (unused imports and variables, undefined names)
+    "I",   # import sorting
+    "UP",  # newer Python syntax
+    "B",   # likely bugs
+]
+# F405 flags every name that comes from a star import, which repeats F403 on every use.
+# F403 still flags the star import lines themselves.
+ignore = ["F405"]
+
+[lint.flake8-bugbear]
+# FastAPI declares request parameters with calls in default arguments, e.g. `file: UploadFile = File(...)`.
+extend-immutable-calls = ["fastapi.File", "fastapi.Query"]

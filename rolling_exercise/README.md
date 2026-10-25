@@ -105,3 +105,98 @@ You will calculate it using a given function "calculate_aqi(pm25, no2, co2)" tha
 
 
 ## Good Luck! (:
+
+---
+
+## Setup and running
+
+### Requirements
+- Python 3.13
+- PostgreSQL 16 (e.g. `brew install postgresql@16 && brew services start postgresql@16` on macOS)
+
+### 1. Install the Python packages
+From this folder (`rolling_exercise/`):
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r setup/requirements.txt
+```
+
+### 2. Create the database and its tables
+```bash
+createdb air_quality
+psql air_quality -f air_quality_db/schema.sql
+```
+This creates two tables: `air_quality_readings` 
+and `alerts` (readings with AQI over 300). Running `schema.sql` again is safe, since it skips tables that already exist.
+
+### 3. Configure `setup/.env`
+Create a `.env` file in the `setup/` folder:
+```
+HOST=127.0.0.1
+PORT=8010
+RELOAD=true
+
+LOG_FILE=air_quality_files/logs/air_quality.log
+LOG_LEVEL=INFO
+
+DATABASE_URL=postgresql://<your-postgres-user>@localhost:5432/air_quality
+```
+A local Homebrew Postgres uses your macOS username and no password.
+
+### 4. Run the server
+```bash
+python main.py
+```
+- Frontend: http://127.0.0.1:8010/ (upload CSVs, browse both tables, call every endpoint and see its logs)
+- API docs: http://127.0.0.1:8010/docs
+- Logs: written to `air_quality_files/logs/air_quality.log` (a relative `LOG_FILE` is relative to the project
+  root, and its folder is created if missing). Every request gets an id, which appears on its log lines and in the
+  `X-Request-ID` response header.
+
+Sample files to upload are in `air_quality_files/input/`.
+
+### Running the tests
+```bash
+python -m tests            # all tests (uses setup/pytest.ini)
+python -m tests -v         # one line per test
+python -m tests -k alerts  # only tests whose name matches
+```
+The tests create their own database, `air_quality_test`, from `schema.sql`, and drop it when they finish, so your
+`air_quality` database is never touched. They need the Postgres server running and your user allowed to create
+databases (the default for a local Homebrew install). Each endpoint has basic tests with a few hand-written rows,
+and tests that load the sample files in `air_quality_files/input/`. Tests that simulate the database being down use
+`unittest.mock`.
+
+### Linting and formatting
+```bash
+./setup/lint.sh           # apply fixes and formatting, then list what's left
+./setup/lint.sh --check   # only report, change nothing
+```
+Settings are in `setup/ruff.toml`.
+
+### Project layout
+| Path | Contents |
+|---|---|
+| `main.py` | Combines the API and the frontend into one app, and starts the server |
+| `air_quality_api/api.py` | The API endpoints |
+| `air_quality_api/utils.py` | CSV validation and cleaning, AQI calculation, input validation, logging setup |
+| `air_quality_api/const.py` | Constants and settings read from `setup/.env` |
+| `air_quality_db/` | Database connection (`connection.py`), queries (`queries.py`), fixed SQL statements (`statements.py`) and `schema.sql` |
+| `air_quality_frontend/static/` | The web page (plain HTML, CSS and JavaScript), served at `/` |
+| `air_quality_frontend/routes.py` | Endpoints only the page uses: `GET /logs` and `GET /tables/{table}` |
+| `air_quality_frontend/const.py` | The page's settings: static folder, log parsing, table browsing |
+| `tests/` | The tests: one file per group of endpoints, shared setup in `conftest.py`, test data in `data.py` |
+| `air_quality_files/input/` | Sample CSV files to upload |
+| `air_quality_files/logs/` | The log file (`air_quality.log`) |
+| `setup/` | `.env`, `requirements.txt`, `pytest.ini`, `ruff.toml` and `lint.sh` |
+| `calculate_aqi.py` | The given AQI function |
+
+### Why PostgreSQL
+- The data is a table: every reading has the same fixed fields (date, city, PM2.5, NO2, CO2, AQI, AQI level).
+- The queries are mostly filtering and aggregation (date ranges, averages per city, best cities), which SQL does
+  directly.
+- Alerts are tied to readings. A foreign key guarantees every alert belongs to a stored reading, and
+  `UNIQUE (date, city)` stops the same city and day from being stored twice.
+- Constraints (`NOT NULL`, `CHECK (aqi > 300)` on alerts, non-negative pollutants) keep invalid data out even if
+  something bypasses the API.
