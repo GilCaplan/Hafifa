@@ -181,7 +181,7 @@ Settings are in `ruff.toml`.
 | `air_quality_api/api.py` | The API endpoints |
 | `air_quality_api/utils.py` | CSV validation and cleaning, AQI calculation, input validation, logging setup |
 | `air_quality_api/const.py` | Constants and settings read from `.env` |
-| `air_quality_db/` | Database connection, queries and `schema.sql` |
+| `air_quality_db/` | Database connection (`connection.py`), queries (`queries.py`), fixed SQL statements (`statements.py`) and `schema.sql` |
 | `air_quality_frontend/` | The web page (plain HTML, CSS and JavaScript) |
 | `tests/` | The tests: one file per group of endpoints, shared setup in `conftest.py`, test data in `data.py` |
 | `calculate_aqi.py` | The given AQI function |

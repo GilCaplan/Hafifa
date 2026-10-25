@@ -1,0 +1,80 @@
+NEW BRANCH + PR FROM A LIST OF FILES
+====================================
+
+Makes a new branch from the original code (main), puts ONLY the files/folders you list on it,
+commits, pushes, and opens a PR into main on your fork. The PR diff = your files vs. the original.
+
+How to use:
+  1. Copy the block below.
+  2. Change the values in the "EDIT THESE" part.
+  3. Paste it into the terminal (zsh) and press Enter.
+
+It takes the CURRENT (uncommitted) version of each listed file from your working folder,
+whatever branch you are on. Files you don't list are left exactly as they are.
+
+
+------------------------- copy from here -------------------------
+
+# ===== EDIT THESE =====
+REPO_PATH="/Users/USER/Desktop/army/training_DE/Hafifa"   # path to the Hafifa folder
+BRANCH="my-new-branch"                                     # name of the new branch
+FILES=(
+  "web_scraping/browser.py"                                # paths relative to REPO_PATH; folders work too
+)
+COMMIT_MSG="Add my changes"
+PR_TITLE="My PR title"
+PR_BODY="Describe the changes here"
+BASE="main"                                                # branch to compare against (the original code)
+REPO="GilCaplan/Hafifa"                                    # your fork, so the PR does NOT go to the original repo
+# ======================
+
+cd "$REPO_PATH" \
+&& git stash push --include-untracked -m "files for $BRANCH" -- "${FILES[@]}" \
+&& git switch "$BASE" \
+&& git pull \
+&& git switch -c "$BRANCH" \
+&& git stash pop \
+&& git add -- "${FILES[@]}" \
+&& git commit -m "$COMMIT_MSG" \
+&& git push -u origin "$BRANCH" \
+&& gh pr create --repo "$REPO" --base "$BASE" --head "$BRANCH" --title "$PR_TITLE" --body "$PR_BODY"
+
+-------------------------- copy to here --------------------------
+
+
+What each step does
+-------------------
+git stash push ... -- FILES   puts aside your changes to ONLY the listed files (new files too)
+git switch BASE + git pull    goes to the original code and updates it
+git switch -c BRANCH          creates the new branch from there
+git stash pop                 brings your listed files back onto the new branch
+git add / commit / push       commits only those files and uploads the branch
+gh pr create --repo ...       opens the PR into BASE on your fork (prints the PR link)
+
+The && between steps means: if a step fails, the rest stop (nothing half-done gets pushed).
+
+
+If something goes wrong
+-----------------------
+"No local changes to save"
+    The listed files have no uncommitted changes. Check the paths, or see the
+    "files already committed" variant below.
+
+The switch to main fails ("your local changes would be overwritten")
+    Another file you did NOT list has changes that clash with main. Commit or stash it first.
+
+It stopped after the stash, before the pop
+    Your files are safe in the stash. Run:   git stash list    then   git stash pop
+
+"a branch named ... already exists"
+    Pick a different BRANCH name.
+
+
+Variant: the files are already committed on another branch
+----------------------------------------------------------
+Replace the "git stash push" and "git stash pop" lines with this one line,
+placed right after "git switch -c ...":
+
+    && git checkout OTHER_BRANCH -- "${FILES[@]}" \
+
+(OTHER_BRANCH = the branch where the finished files are committed, e.g. clean-code)

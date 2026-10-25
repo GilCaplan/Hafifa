@@ -4,66 +4,40 @@ import pandas as pd
 from psycopg import sql
 from psycopg.rows import dict_row
 
-from air_quality_api.const import (
-    AQI_COLUMN,
-    AQI_LEVEL_COLUMN,
-    CITY_COLUMN,
-    CO2_COLUMN,
-    DATE_COLUMN,
-    NO2_COLUMN,
-    PM25_COLUMN,
-)
 from air_quality_db.connection import get_connection
-
-INSERT_READING = """
-    INSERT INTO air_quality_readings (date, city, pm25, no2, co2, aqi, aqi_level)
-    VALUES (%s, %s, %s, %s, %s, %s, %s)
-    ON CONFLICT (date, city) DO NOTHING
-    RETURNING date, city
-"""
-
-INSERT_ALERT = """
-    INSERT INTO alerts (date, city, aqi)
-    VALUES (%s, %s, %s)
-    ON CONFLICT (date, city) DO NOTHING
-"""
-
-READING_COLUMNS = [DATE_COLUMN, CITY_COLUMN, PM25_COLUMN, NO2_COLUMN, CO2_COLUMN, AQI_COLUMN, AQI_LEVEL_COLUMN]
-ALERT_COLUMNS = [DATE_COLUMN, CITY_COLUMN, AQI_COLUMN]
+from air_quality_db.statements import ALERT_COLUMNS, INSERT_ALERT, INSERT_READING, READING_COLUMNS
 
 
 def to_rows(df: pd.DataFrame, columns: list[str]) -> list[tuple]:
     return list(df[columns].itertuples(index=False, name=None))
 
 
-def save_readings(readings: pd.DataFrame, alerts: pd.DataFrame) -> tuple[int, int]:
+def save_readings(readings: pd.DataFrame, alerts: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     """
     Saves readings and their alerts in one transaction: either both are saved or neither is.
-    Readings whose (date, city) already exist are skipped, and so are their alerts.
-    Returns (inserted readings, inserted alerts).
+    Readings whose (date, city) is already saved, or appears earlier in the same upload, are skipped as duplicates,
+    and so are their alerts. `alerts` must be rows of `readings` (same index).
+    Returns (the duplicate readings, the number of alerts inserted).
     """
     if readings.empty:
-        return 0, 0
+        return readings, 0
 
     with get_connection() as connection, connection.cursor() as cursor:
         cursor.executemany(INSERT_READING, to_rows(readings, READING_COLUMNS), returning=True)
-        inserted_keys = set()
+        # One result per reading, in order: the RETURNING row if it was inserted, nothing if it was a duplicate
+        inserted = []
         while True:
-            row = cursor.fetchone()
-            if row is not None:
-                inserted_keys.add(row)
+            inserted.append(cursor.fetchone() is not None)
             if not cursor.nextset():
                 break
+        was_inserted = pd.Series(inserted, index=readings.index)
 
-        is_new = [
-            (date, city) in inserted_keys for date, city in zip(alerts[DATE_COLUMN], alerts[CITY_COLUMN], strict=True)
-        ]
-        # .loc selects rows: plain alerts[is_new] with an empty list would select zero columns instead
-        new_alerts = to_rows(alerts.loc[is_new], ALERT_COLUMNS)
+        # .loc selects rows: plain alerts[...] with an empty list would select zero columns instead
+        new_alerts = to_rows(alerts.loc[was_inserted[alerts.index]], ALERT_COLUMNS)
         if new_alerts:
             cursor.executemany(INSERT_ALERT, new_alerts)
 
-    return len(inserted_keys), len(new_alerts)
+    return readings[~was_inserted], len(new_alerts)
 
 
 def active_clauses(clauses: list[tuple[str, object]]) -> tuple[list[sql.SQL], list]:

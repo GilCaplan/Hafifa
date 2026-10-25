@@ -60,6 +60,21 @@ def test_uploading_the_same_rows_again_skips_them_as_duplicates(upload_rows):
     assert data["alerts"] == 0
 
 
+def test_duplicates_are_logged_with_their_lines(upload_rows, caplog):
+    upload_rows(HAIFA_20)
+    with caplog.at_level("WARNING"):
+        upload_rows(EILAT_20, HAIFA_20)  # Haifa is line 3 of this upload
+
+    assert "Skipped line 3 in readings.csv: Haifa on 2024-11-20 is already saved" in caplog.messages
+
+
+def test_duplicate_within_one_file_is_saved_once(upload_rows):
+    data = upload_rows(EILAT_20, EILAT_20).json()
+
+    assert (data["inserted_rows"], data["duplicate_rows"], data["alerts"]) == (1, 1, 1)
+    assert count_rows(ALERTS_TABLE) == 1
+
+
 def test_non_csv_file_is_rejected(upload):
     response = upload("notes.txt", "hello")
 

@@ -158,7 +158,7 @@ def upload_air_quality_data(file: UploadFile = File(...)):
     logger.info(f"Calculated AQI for {len(valid_rows)} rows in {filename}, {len(alerts)} alerts")
 
     try:
-        inserted_rows, inserted_alerts = save_readings(valid_rows, alerts)
+        duplicates, inserted_alerts = save_readings(valid_rows, alerts)
     except psycopg.OperationalError as error:
         logger.error(f"Failed to save {filename}: database unavailable ({error})")
         raise HTTPException(
@@ -170,7 +170,12 @@ def upload_air_quality_data(file: UploadFile = File(...)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not save {filename} to the database"
         ) from error
 
-    duplicate_rows = len(valid_rows) - inserted_rows
+    duplicate_lines = get_csv_line_numbers(duplicates)
+    for line, day, city in zip(duplicate_lines, duplicates[DATE_COLUMN], duplicates[CITY_COLUMN], strict=True):
+        logger.warning(f"Skipped line {line} in {filename}: {city} on {day} is already saved")
+
+    duplicate_rows = len(duplicates)
+    inserted_rows = len(valid_rows) - duplicate_rows
     logger.info(
         f"Saved {inserted_rows} rows and {inserted_alerts} alerts from {filename}, {duplicate_rows} duplicates skipped"
     )
