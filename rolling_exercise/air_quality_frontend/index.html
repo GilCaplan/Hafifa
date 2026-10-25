@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Air Quality</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h7" /></svg>
+      <span>Air Quality</span>
+    </div>
+    <div class="api-status" id="api-status" data-state="unknown">
+      <span class="dot"></span><span class="label">Connecting…</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="card" aria-labelledby="upload-title">
+      <div class="card-head">
+        <h2 id="upload-title">Upload readings</h2>
+        <p class="hint">CSV files with the columns <code>date</code>, <code>city</code>, <code>PM2.5</code>, <code>NO2</code>, <code>CO2</code></p>
+      </div>
+
+      <label class="dropzone" id="dropzone" tabindex="0">
+        <input type="file" id="file-input" accept=".csv,text/csv" multiple hidden>
+        <svg class="dropzone-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>
+        <strong>Drop CSV files here</strong>
+        <span>or <span class="link">browse</span> your computer</span>
+      </label>
+
+      <div class="results-head" id="results-head" hidden>
+        <h3>Results</h3>
+        <button class="text-btn" id="clear-results" type="button">Clear</button>
+      </div>
+      <ul class="results" id="results"></ul>
+    </section>
+
+    <section class="card" aria-labelledby="logs-title">
+      <div class="card-head logs-head">
+        <h2 id="logs-title">Logs</h2>
+        <div class="controls">
+          <div class="segmented" id="level-filter" role="group" aria-label="Filter by level">
+            <button type="button" data-level="ALL" aria-pressed="true">All</button>
+            <button type="button" data-level="INFO" aria-pressed="false">Info</button>
+            <button type="button" data-level="WARNING" aria-pressed="false">Warnings</button>
+            <button type="button" data-level="ERROR" aria-pressed="false">Errors</button>
+          </div>
+          <input type="search" id="log-search" placeholder="Search logs" aria-label="Search logs">
+          <label class="toggle"><input type="checkbox" id="auto-refresh" checked> Live</label>
+          <button class="icon-btn" id="refresh-logs" type="button" title="Refresh logs" aria-label="Refresh logs">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" /></svg>
+          </button>
+        </div>
+      </div>
+      <p class="counts" id="log-counts"></p>
+      <div class="log-list" id="log-list" aria-live="polite"></div>
+    </section>
+
+    <section class="card wide-card" aria-labelledby="endpoints-title">
+      <div class="card-head">
+        <h2 id="endpoints-title">Endpoints</h2>
+        <p class="hint">Every API endpoint, read from the API's own OpenAPI description. Send a request to see its response, any error, and the logs it wrote.</p>
+      </div>
+      <div class="endpoint-list" id="endpoint-list">
+        <div class="empty">Loading endpoints…</div>
+      </div>
+    </section>
+
+    <section class="card wide-card" aria-labelledby="data-title">
+      <div class="card-head data-head">
+        <h2 id="data-title">Data</h2>
+        <div class="segmented" id="table-tabs" role="group" aria-label="Table">
+          <button type="button" data-table="readings" aria-pressed="true">Readings</button>
+          <button type="button" data-table="alerts" aria-pressed="false">Alerts</button>
+        </div>
+      </div>
+
+      <form class="filters" id="table-filters">
+        <label>City <input type="search" name="city" placeholder="Any city"></label>
+        <label>From <input type="date" name="start_date"></label>
+        <label>To <input type="date" name="end_date"></label>
+        <label>Rows
+          <select name="limit">
+            <option>10</option>
+            <option selected>25</option>
+            <option>50</option>
+            <option>100</option>
+          </select>
+        </label>
+        <button class="text-btn" type="reset">Reset</button>
+      </form>
+
+      <div class="table-wrap">
+        <table class="data-table" id="data-table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <span class="counts" id="table-range"></span>
+        <div class="pager-buttons">
+          <button class="text-btn" type="button" id="prev-page">Previous</button>
+          <button class="text-btn" type="button" id="next-page">Next</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
