@@ -6,10 +6,10 @@ from datetime import date, timedelta
 import pytest
 from httpx import Response
 
-from air_quality_api.const import CITY_COLUMN, DATE_COLUMN
+from air_quality_api.const import Columns
 from tests.utils import SAMPLE_READINGS, client
 
-SAMPLE_DATES = sorted({reading[DATE_COLUMN] for reading in SAMPLE_READINGS})
+SAMPLE_DATES = sorted({reading[Columns.DATE] for reading in SAMPLE_READINGS})
 
 
 def get_range(start_date: str, end_date: str) -> Response:
@@ -27,14 +27,14 @@ def shift(day: str, days: int) -> str:
 def test_range_returns_only_its_readings_sorted_by_date_then_city() -> None:
     start, end = SAMPLE_DATES[2:4]
     expected = sorted(
-        (reading_sample[DATE_COLUMN], reading_sample[CITY_COLUMN])
+        (reading_sample[Columns.DATE], reading_sample[Columns.CITY])
         for reading_sample in SAMPLE_READINGS
-        if start <= reading_sample[DATE_COLUMN] <= end
+        if start <= reading_sample[Columns.DATE] <= end
     )
     response = get_range(start, end)
 
     assert response.status_code == 200
-    assert [(row[DATE_COLUMN], row[CITY_COLUMN]) for row in response.json()] == expected
+    assert [(row[Columns.DATE], row[Columns.CITY]) for row in response.json()] == expected
 
 
 @pytest.mark.usefixtures("load_samples")
@@ -44,13 +44,13 @@ def test_whole_range_returns_every_reading() -> None:
 
 @pytest.mark.usefixtures("load_samples")
 def test_single_days() -> None:
-    for day, expected in Counter(reading[DATE_COLUMN] for reading in SAMPLE_READINGS).items():
+    for day, expected in Counter(reading[Columns.DATE] for reading in SAMPLE_READINGS).items():
         assert len(get_range(day, day).json()) == expected, day
 
 
 @pytest.mark.usefixtures("load_samples")
 def test_range_partly_outside_the_data_returns_what_exists() -> None:
-    expected = sum(reading[DATE_COLUMN] <= SAMPLE_DATES[1] for reading in SAMPLE_READINGS)
+    expected = sum(reading[Columns.DATE] <= SAMPLE_DATES[1] for reading in SAMPLE_READINGS)
 
     assert len(get_range(shift(SAMPLE_DATES[0], -10), SAMPLE_DATES[1]).json()) == expected
 
@@ -93,17 +93,17 @@ def test_missing_end_date_is_rejected() -> None:
 
 @pytest.mark.usefixtures("load_samples")
 def test_each_city_returns_only_its_readings() -> None:
-    for city, expected in Counter(reading[CITY_COLUMN] for reading in SAMPLE_READINGS).items():
+    for city, expected in Counter(reading[Columns.CITY] for reading in SAMPLE_READINGS).items():
         rows = client.get("/air-quality/city", params={"city": city}).json()
 
         assert len(rows) == expected, city
-        assert {row[CITY_COLUMN] for row in rows} == {city}
+        assert {row[Columns.CITY] for row in rows} == {city}
         assert set(rows[0]) == {"id", "date", "city", "pm25", "no2", "co2", "aqi", "aqi_level"}
 
 
 @pytest.mark.usefixtures("load_samples")
 def test_city_name_spaces_are_trimmed() -> None:
-    city = SAMPLE_READINGS[0][CITY_COLUMN]
-    expected = sum(reading[CITY_COLUMN] == city for reading in SAMPLE_READINGS)
+    city = SAMPLE_READINGS[0][Columns.CITY]
+    expected = sum(reading[Columns.CITY] == city for reading in SAMPLE_READINGS)
 
     assert len(client.get("/air-quality/city", params={"city": f"   {city}  "}).json()) == expected

@@ -2,9 +2,10 @@ import logging
 from datetime import date
 
 import psycopg
-from air_quality_api.const import CITY_NAME_REGEX, MAX_CITY_NAME_LENGTH, READINGS_TABLE
-from air_quality_db.queries import count_rows, get_date_range
 from fastapi import HTTPException, status
+
+from air_quality_api.const import City, Tables
+from air_quality_db.queries import count_rows, get_date_range
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +18,9 @@ def clean_city_name(city: str) -> str:
     cleaned = " ".join(city.split())
     if not cleaned:
         raise ValueError("City name is empty")
-    if len(cleaned) > MAX_CITY_NAME_LENGTH:
-        raise ValueError(f"City name is longer than {MAX_CITY_NAME_LENGTH} characters")
-    if not CITY_NAME_REGEX.match(cleaned):
+    if len(cleaned) > City.MAX_NAME_LENGTH:
+        raise ValueError(f"City name is longer than {City.MAX_NAME_LENGTH} characters")
+    if not City.NAME_REGEX.match(cleaned):
         raise ValueError(f"City name {cleaned!r} can only contain letters, spaces, hyphens and apostrophes")
     return cleaned
 
@@ -48,7 +49,7 @@ def validate_city(city: str) -> str:
     except ValueError as error:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(error)) from error
 
-    if call_database(f"look up city {cleaned}", count_rows, table=READINGS_TABLE, city=cleaned) == 0:
+    if call_database(f"look up city {cleaned}", count_rows, table=Tables.READINGS, city=cleaned) == 0:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"No readings for city {cleaned}. Check the spelling: city names are case-sensitive",
@@ -66,7 +67,7 @@ def validate_dates(start_date: date, end_date: date | None = None) -> None:
     if start_date > end_date:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"start_date {start_date} is after end_date {end_date}")
 
-    first, last = call_database("read the data's date range", get_date_range, table=READINGS_TABLE)
+    first, last = call_database("read the data's date range", get_date_range, table=Tables.READINGS)
     if first is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no data yet, upload a CSV first")
     if end_date < first or start_date > last:

@@ -1,6 +1,6 @@
 import uvicorn
 
-from air_quality_api.const import APP_PATH, HOST, PORT, RELOAD
+from air_quality_api.const import App, settings
 
 
 class Server:
@@ -13,7 +13,7 @@ class Server:
         return cls._instance
 
     def run(self) -> None:
-        uvicorn.run(APP_PATH, host=HOST, port=PORT, reload=RELOAD)
+        uvicorn.run(App.IMPORT_PATH, host=settings.host, port=settings.port, reload=settings.reload)
 
 
 if __name__ == "__main__":

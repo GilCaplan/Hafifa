@@ -2,17 +2,15 @@ import logging
 import time
 from datetime import date
 
-from air_quality_api.const import (
-    ALERTS_TABLE,
-    AQI_COLUMN,
-    AQI_LEVEL_COLUMNS,
-    AVERAGE_AQI_DECIMALS,
-    AVERAGE_AQI_KEY,
-    BEST_CITIES_COUNT,
-    CITY_COLUMN,
-    DATE_COLUMN,
-    READINGS_TABLE,
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
 )
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+from air_quality_api.const import Aqi, Columns, Tables
 from air_quality_api.logs import (
     describe_validation_problem,
     log_request,
@@ -26,13 +24,6 @@ from air_quality_api.upload import (
 )
 from air_quality_api.utils import call_database, validate_city, validate_dates
 from air_quality_db.queries import fetch_rows, save_readings
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, status
-from fastapi.exception_handlers import (
-    http_exception_handler,
-    request_validation_exception_handler,
-)
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -111,47 +102,47 @@ def upload_air_quality_data(file: UploadFile = File(...)):  # noqa: B008
 @app.get("/air-quality")
 def get_air_quality_data(start_date: date, end_date: date):
     validate_dates(start_date, end_date)
-    return fetch_rows(READINGS_TABLE, start_date=start_date, end_date=end_date, sort=[DATE_COLUMN, CITY_COLUMN])
+    return fetch_rows(Tables.READINGS, start_date=start_date, end_date=end_date, sort=[Columns.DATE, Columns.CITY])
 
 
 @app.get("/air-quality/city")
 def get_air_quality_data_by_city(city: str):
     city = validate_city(city)
-    return fetch_rows(READINGS_TABLE, None, city)
+    return fetch_rows(Tables.READINGS, None, city)
 
 
 @app.get("/aqi/history")
 def get_city_aqi_history(city: str):
     city = validate_city(city)
-    return fetch_rows(READINGS_TABLE, AQI_LEVEL_COLUMNS, city, sort=DATE_COLUMN)
+    return fetch_rows(Tables.READINGS, Columns.AQI_HISTORY, city, sort=Columns.DATE)
 
 
 @app.get("/aqi/average")
 def get_city_aqi_average(city: str):
     city = validate_city(city)
-    data = fetch_rows(READINGS_TABLE, [AQI_COLUMN], city)
-    aqi_values = [data_point[AQI_COLUMN] for data_point in data]
+    data = fetch_rows(Tables.READINGS, [Columns.AQI], city)
+    aqi_values = [data_point[Columns.AQI] for data_point in data]
 
     if not aqi_values:
         logger.info(f"0 readings from the city {city} fetched")
         return None
 
     city_avg = sum(aqi_values) / len(aqi_values)
-    return {CITY_COLUMN: city, AVERAGE_AQI_KEY: round(city_avg, AVERAGE_AQI_DECIMALS)}
+    return {Columns.CITY: city, Aqi.AVERAGE_KEY: round(city_avg, Aqi.AVERAGE_DECIMALS)}
 
 
 @app.get("/aqi/best-cities")
 def get_best_cities():
     # The instructions don't define "best", so it's the lowest average AQI over all of a city's dates
-    cities = {row[CITY_COLUMN] for row in fetch_rows(READINGS_TABLE, [CITY_COLUMN])}
+    cities = {row[Columns.CITY] for row in fetch_rows(Tables.READINGS, [Columns.CITY])}
     city_aqi_averages = [get_city_aqi_average(city) for city in cities]
-    city_aqi_averages.sort(key=lambda average: (average[AVERAGE_AQI_KEY], average[CITY_COLUMN]))
-    return city_aqi_averages[:BEST_CITIES_COUNT]
+    city_aqi_averages.sort(key=lambda average: (average[Aqi.AVERAGE_KEY], average[Columns.CITY]))
+    return city_aqi_averages[: Aqi.BEST_CITIES_COUNT]
 
 
 @app.get("/alerts")
 def get_all_alerts():
-    return fetch_rows(ALERTS_TABLE)
+    return fetch_rows(Tables.ALERTS)
 
 
 @app.get("/alerts/date")
@@ -160,10 +151,10 @@ def get_alerts_by_date(alert_date: date = Query(alias="date")):  # noqa: B008
     alerts = call_database(
         f"read alerts for {alert_date}",
         fetch_rows,
-        table=ALERTS_TABLE,
+        table=Tables.ALERTS,
         start_date=alert_date,
         end_date=alert_date,
-        sort=CITY_COLUMN,
+        sort=Columns.CITY,
     )
     logger.info(f"Found {len(alerts)} alerts on {alert_date}")
     return alerts
@@ -172,6 +163,6 @@ def get_alerts_by_date(alert_date: date = Query(alias="date")):  # noqa: B008
 @app.get("/alerts/city")
 def get_alerts_by_city(city: str):
     city = validate_city(city)
-    alerts = call_database(f"read alerts for {city}", fetch_rows, table=ALERTS_TABLE, city=city, sort=DATE_COLUMN)
+    alerts = call_database(f"read alerts for {city}", fetch_rows, table=Tables.ALERTS, city=city, sort=Columns.DATE)
     logger.info(f"Found {len(alerts)} alerts for {city}")
     return alerts

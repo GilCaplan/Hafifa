@@ -7,14 +7,7 @@ from fastapi.testclient import TestClient
 from httpx import Response
 
 from air_quality_api.api import app
-from air_quality_api.const import (
-    AQI_COLUMN,
-    AQI_LEVEL_COLUMN,
-    CITY_COLUMN,
-    CSV_HEADER_LINES,
-    DATE_COLUMN,
-    POLLUTANT_COLUMNS,
-)
+from air_quality_api.const import Columns, Validation
 from calculate_aqi import calculate_aqi
 from tests.const import (
     CSV_CONTENT_TYPE,
@@ -40,18 +33,18 @@ def read_sample_file(path: Path) -> tuple[list[Reading], list[int]]:
     with path.open() as file:
         reader = csv.DictReader(file)
         reader.fieldnames = [name.strip().lower() for name in reader.fieldnames]  # the app's column names
-        for line, row in enumerate(reader, start=CSV_HEADER_LINES + 1):
+        for line, row in enumerate(reader, start=Validation.CSV_HEADER_LINES + 1):
             if any(value in MISSING_VALUES for value in row.values()):
                 skipped_lines.append(line)
                 continue
-            aqi, aqi_level = calculate_aqi(*(float(row[column]) for column in POLLUTANT_COLUMNS))
+            aqi, aqi_level = calculate_aqi(*(float(row[column]) for column in Columns.POLLUTANTS))
             reading = {
                 FILE_KEY: path.name,
                 LINE_KEY: line,
-                DATE_COLUMN: row[DATE_COLUMN],
-                CITY_COLUMN: row[CITY_COLUMN],
-                AQI_COLUMN: aqi,
-                AQI_LEVEL_COLUMN: aqi_level,
+                Columns.DATE: row[Columns.DATE],
+                Columns.CITY: row[Columns.CITY],
+                Columns.AQI: aqi,
+                Columns.AQI_LEVEL: aqi_level,
             }
             readings.append(reading)
     return readings, skipped_lines

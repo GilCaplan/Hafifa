@@ -2,16 +2,17 @@
 
 import logging
 
-from air_quality_api.const import LOG_FILE, LOG_FORMAT, LOG_LEVEL
 from fastapi import Request, status
 from fastapi.routing import APIRoute
+
+from air_quality_api.const import Log, settings
 
 logger = logging.getLogger(__name__)
 
 
 def setup_logging() -> None:
-    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=LOG_FILE, level=LOG_LEVEL, format=LOG_FORMAT)
+    settings.log_file.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(filename=settings.log_file, level=settings.log_level, format=Log.FORMAT)
 
 
 def get_request_log_level(status_code: int) -> int:

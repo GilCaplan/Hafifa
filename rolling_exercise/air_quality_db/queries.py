@@ -1,6 +1,9 @@
 from datetime import date
 
 import pandas as pd
+from psycopg import sql
+from psycopg.rows import dict_row
+
 from air_quality_db.connection import get_connection
 from air_quality_db.statements import (
     ALERT_COLUMNS,
@@ -14,8 +17,6 @@ from air_quality_db.utils import (
     build_order_by,
     to_rows,
 )
-from psycopg import sql
-from psycopg.rows import dict_row
 
 
 def save_readings(readings: pd.DataFrame, alerts: pd.DataFrame) -> tuple[pd.DataFrame, int]:

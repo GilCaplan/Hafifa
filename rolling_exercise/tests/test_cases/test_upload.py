@@ -6,14 +6,7 @@ from unittest.mock import patch
 import psycopg
 import pytest
 
-from air_quality_api.const import (
-    ALERT_AQI_THRESHOLD,
-    ALERTS_TABLE,
-    AQI_COLUMN,
-    CITY_COLUMN,
-    DATE_COLUMN,
-    READINGS_TABLE,
-)
+from air_quality_api.const import Aqi, Columns, Tables
 from air_quality_db.queries import count_rows
 from tests.const import FILE_KEY, LINE_KEY, SAMPLE_FILES, Reading
 from tests.utils import SAMPLE_READINGS, SAMPLE_SKIPPED_LINES, upload
@@ -26,7 +19,7 @@ def readings_of(path: Path) -> list[Reading]:
 
 
 def count_alerts(readings: list[Reading]) -> int:
-    return sum(reading[AQI_COLUMN] > ALERT_AQI_THRESHOLD for reading in readings)
+    return sum(reading[Columns.AQI] > Aqi.ALERT_THRESHOLD for reading in readings)
 
 
 def test_each_sample_file_saves_its_valid_rows() -> None:
@@ -42,8 +35,8 @@ def test_each_sample_file_saves_its_valid_rows() -> None:
             "skipped_rows": SAMPLE_SKIPPED_LINES[path.name],
             "alerts": count_alerts(readings),
         }
-    assert count_rows(READINGS_TABLE) == len(SAMPLE_READINGS)
-    assert count_rows(ALERTS_TABLE) == count_alerts(SAMPLE_READINGS)
+    assert count_rows(Tables.READINGS) == len(SAMPLE_READINGS)
+    assert count_rows(Tables.ALERTS) == count_alerts(SAMPLE_READINGS)
 
 
 def test_column_names_ignore_case_spaces_and_extra_columns() -> None:
@@ -69,7 +62,7 @@ def test_duplicates_are_logged_with_their_lines(caplog: pytest.LogCaptureFixture
 
     message = (
         f"Skipped line {first[LINE_KEY]} in {FIRST_SAMPLE.name}: "
-        f"{first[CITY_COLUMN]} on {first[DATE_COLUMN]} is already saved"
+        f"{first[Columns.CITY]} on {first[Columns.DATE]} is already saved"
     )
     assert message in caplog.messages
 
@@ -80,7 +73,7 @@ def test_duplicate_rows_within_one_file_are_saved_once() -> None:
     data = upload(FIRST_SAMPLE.name, "\n".join([header, *rows, *rows])).json()
 
     assert (data["inserted_rows"], data["duplicate_rows"]) == (len(readings), len(readings))
-    assert count_rows(ALERTS_TABLE) == count_alerts(readings)
+    assert count_rows(Tables.ALERTS) == count_alerts(readings)
 
 
 def test_non_csv_file_is_rejected() -> None:
@@ -117,4 +110,4 @@ def test_uploading_the_samples_twice_adds_nothing() -> None:
     second_round = [upload(path.name, path.read_bytes()).json() for path in SAMPLE_FILES]
 
     assert sum(data["inserted_rows"] for data in second_round) == 0
-    assert count_rows(READINGS_TABLE) == len(SAMPLE_READINGS)
+    assert count_rows(Tables.READINGS) == len(SAMPLE_READINGS)

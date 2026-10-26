@@ -8,7 +8,7 @@ from collections.abc import Iterator
 import psycopg
 import pytest
 
-from air_quality_api.const import ALERTS_TABLE, DATABASE_URL, READINGS_TABLE
+from air_quality_api.const import Tables, settings
 from tests.const import (
     ADMIN_DATABASE_URL,
     SAMPLE_FILES,
@@ -21,11 +21,11 @@ from tests.utils import upload
 
 @pytest.fixture(scope="session", autouse=True)
 def test_database() -> Iterator[None]:
-    assert DATABASE_URL == TEST_DATABASE_URL, f"The app isn't using the test database: {DATABASE_URL}"
+    assert settings.database_url == TEST_DATABASE_URL, f"The app isn't using the test database: {settings.database_url}"
     with psycopg.connect(ADMIN_DATABASE_URL, autocommit=True) as admin:
         admin.execute(f"DROP DATABASE IF EXISTS {TEST_DATABASE} WITH (FORCE)")
         admin.execute(f"CREATE DATABASE {TEST_DATABASE}")
-    with psycopg.connect(DATABASE_URL, autocommit=True) as connection:
+    with psycopg.connect(settings.database_url, autocommit=True) as connection:
         connection.execute(SCHEMA_FILE.read_text())
     yield
     with psycopg.connect(ADMIN_DATABASE_URL, autocommit=True) as admin:
@@ -34,8 +34,8 @@ def test_database() -> Iterator[None]:
 
 @pytest.fixture(autouse=True)
 def empty_tables() -> None:
-    with psycopg.connect(DATABASE_URL, autocommit=True) as connection:
-        connection.execute(f"TRUNCATE {ALERTS_TABLE}, {READINGS_TABLE} RESTART IDENTITY")
+    with psycopg.connect(settings.database_url, autocommit=True) as connection:
+        connection.execute(f"TRUNCATE {Tables.ALERTS}, {Tables.READINGS} RESTART IDENTITY")
 
 
 @pytest.fixture
