@@ -1,46 +1,38 @@
 import logging
 import time
 from datetime import date
-from uuid import uuid4
-
-import pandas as pd
-import psycopg
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, status
-from fastapi.exception_handlers import request_validation_exception_handler
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from fastapi.routing import APIRoute
 
 from air_quality_api.const import (
     ALERTS_TABLE,
     AQI_COLUMN,
-    AQI_LEVEL_COLUMN,
+    AQI_LEVEL_COLUMNS,
     AVERAGE_AQI_DECIMALS,
     AVERAGE_AQI_KEY,
     BEST_CITIES_COUNT,
     CITY_COLUMN,
     DATE_COLUMN,
     READINGS_TABLE,
-    REQUEST_ID_HEADER,
-    REQUIRED_COLUMNS,
-    UNLOGGED_ROUTES,
 )
-from air_quality_api.utils import (
-    add_aqi,
-    coerce_types,
-    get_alerts,
-    get_csv_line_numbers,
-    get_missing_columns,
-    is_csv_file,
-    normalize_columns,
-    request_id_var,
-    run_query,
+from air_quality_api.logs import (
+    describe_validation_problem,
+    log_request,
     setup_logging,
-    split_valid_rows,
-    validate_city,
-    validate_dates,
 )
+from air_quality_api.upload import (
+    log_duplicates,
+    prepare_readings,
+    read_upload_csv,
+    upload_summary,
+)
+from air_quality_api.utils import call_database, validate_city, validate_dates
 from air_quality_db.queries import fetch_rows, save_readings
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -48,198 +40,96 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 
-def get_log_level(status_code: int) -> int:
-    """ERROR for 5xx responses, WARNING for 4xx, INFO for everything else."""
-    if status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
-        return logging.ERROR
-    if status_code >= status.HTTP_400_BAD_REQUEST:
-        return logging.WARNING
-    return logging.INFO
-
-
-async def call_route(request: Request, call_next):
-    """Runs the request. On an unhandled exception, logs it with its traceback and returns a clean 500."""
+@app.middleware("http")
+async def handle_api_call(request: Request, call_next):
+    """Turns unhandled exceptions into a 500 and logs the call."""
+    start = time.perf_counter()
     try:
-        return await call_next(request)
-    except Exception as error:
-        logger.exception(f"Unexpected error on {request.method} {request.url.path}: {error}")
-        return JSONResponse(
+        response = await call_next(request)
+    except Exception:
+        logger.exception(f"Unexpected error on {request.method} {request.url.path}")
+        response = JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": "Unexpected server error, see the logs for details"},
         )
-
-
-def log_request(request: Request, status_code: int, duration_ms: float) -> None:
-    """Logs a finished call at a level matching its status code. Skips static files, docs and UNLOGGED_ROUTES."""
-    route = request.scope.get("route")
-    if not isinstance(route, APIRoute) or route.path in UNLOGGED_ROUTES:
-        return
-    query = f"?{request.url.query}" if request.url.query else ""
-    logger.log(
-        get_log_level(status_code),
-        f"{request.method} {request.url.path}{query} -> {status_code} ({duration_ms:.0f} ms)",
-    )
-
-
-@app.middleware("http")
-async def handle_api_call(request: Request, call_next):
-    """
-    Wraps every request: gives it an id, written on all of its log lines and returned in the REQUEST_ID_HEADER
-    response header, turns unhandled exceptions into a 500 (see call_route) and logs the call (see log_request).
-    """
-    request_id = uuid4().hex
-    token = request_id_var.set(request_id)
-    start = time.perf_counter()
-    try:
-        response = await call_route(request, call_next)
-        log_request(request, response.status_code, (time.perf_counter() - start) * 1000)
-        response.headers[REQUEST_ID_HEADER] = request_id
-        return response
-    finally:
-        request_id_var.reset(token)
+    log_request(request, response.status_code, (time.perf_counter() - start) * 1000)
+    return response
 
 
 @app.exception_handler(RequestValidationError)
-async def handle_validation_error(request: Request, error: RequestValidationError):
-    """Logs invalid parameters (like a malformed date), then returns FastAPI's usual 422 response."""
-    problems = "; ".join(f"{'.'.join(map(str, item['loc']))}: {item['msg']}" for item in error.errors())
+async def handle_validation_error(request: Request, errors: RequestValidationError):
+    """
+    Logs invalid parameters, then returns FastAPI's 422 response.
+    """
+    problems = "; ".join(describe_validation_problem(error) for error in errors.errors())
     logger.warning(f"Invalid request to {request.url.path}: {problems}")
-    return await request_validation_exception_handler(request, error)
+    return await request_validation_exception_handler(request, errors)
+
+
+@app.exception_handler(HTTPException)
+async def handle_http_error(request: Request, error: HTTPException):
+    """Logs rejected requests (4xx), then returns FastAPI's usual error response."""
+    if error.status_code < status.HTTP_500_INTERNAL_SERVER_ERROR:
+        logger.warning(f"Rejected {request.url.path}: {error.detail}")
+    return await http_exception_handler(request, error)
 
 
 @app.post("/air-quality/upload")
-def upload_air_quality_data(file: UploadFile = File(...)):
+def upload_air_quality_data(file: UploadFile = File(...)):  # noqa: B008
     """
-    POST upload air quality data
-    Description: Uploads air quality data from a CSV file to the database.
+    Post - Uploads air quality data from a CSV file to database.
     Request Body: A multipart/form-data request containing a CSV file.
     """
     filename = file.filename
     logger.info(f"Received upload: {filename}")
 
-    if not is_csv_file(filename):
-        logger.error(f"Rejected {filename}: not a CSV file")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{filename} is not a CSV file")
+    df = read_upload_csv(file)
+    if df is None:
+        return upload_summary(filename, reason="file is empty")
 
-    try:
-        df = pd.read_csv(file.file)
-    except pd.errors.EmptyDataError:
-        logger.warning(f"Skipped {filename}: file is empty")
-        return {
-            "filename": filename,
-            "inserted_rows": 0,
-            "duplicate_rows": 0,
-            "skipped_rows": [],
-            "alerts": 0,
-            "reason": "file is empty",
-        }
-    except (pd.errors.ParserError, UnicodeDecodeError) as error:
-        logger.error(f"Rejected {filename}: could not parse CSV ({error})")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Could not parse {filename} as CSV"
-        ) from error
-
-    df = normalize_columns(df)
-    missing_columns = get_missing_columns(df)
-    if missing_columns:
-        logger.error(f"Rejected {filename}: missing columns {missing_columns}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Missing columns: {missing_columns}. Expected columns: {REQUIRED_COLUMNS}",
-        )
-
-    df = coerce_types(df[REQUIRED_COLUMNS])
-    valid_rows, invalid_rows = split_valid_rows(df)
-
-    skipped_lines = get_csv_line_numbers(invalid_rows)
-    for line in skipped_lines:
-        logger.warning(f"Skipped line {line} in {filename}: missing or invalid values")
-
-    valid_rows = add_aqi(valid_rows)
-    alerts = get_alerts(valid_rows)
-    logger.info(f"Calculated AQI for {len(valid_rows)} rows in {filename}, {len(alerts)} alerts")
-
-    try:
-        duplicates, inserted_alerts = save_readings(valid_rows, alerts)
-    except psycopg.OperationalError as error:
-        logger.error(f"Failed to save {filename}: database unavailable ({error})")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database is unavailable, try again later"
-        ) from error
-    except psycopg.Error as error:
-        logger.error(f"Failed to save {filename}: database error ({error})")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not save {filename} to the database"
-        ) from error
-
-    duplicate_lines = get_csv_line_numbers(duplicates)
-    for line, day, city in zip(duplicate_lines, duplicates[DATE_COLUMN], duplicates[CITY_COLUMN], strict=True):
-        logger.warning(f"Skipped line {line} in {filename}: {city} on {day} is already saved")
+    readings, alerts, skipped_lines = prepare_readings(df, filename)
+    duplicates, inserted_alerts = call_database(
+        f"save {filename} to the database", save_readings, readings=readings, alerts=alerts
+    )
+    log_duplicates(duplicates, filename)
 
     duplicate_rows = len(duplicates)
-    inserted_rows = len(valid_rows) - duplicate_rows
+    inserted_rows = len(readings) - duplicate_rows
     logger.info(
         f"Saved {inserted_rows} rows and {inserted_alerts} alerts from {filename}, {duplicate_rows} duplicates skipped"
     )
 
-    return {
-        "filename": filename,
-        "inserted_rows": inserted_rows,
-        "duplicate_rows": duplicate_rows,
-        "skipped_rows": skipped_lines,
-        "alerts": inserted_alerts,
-    }
+    return upload_summary(
+        filename,
+        inserted_rows=inserted_rows,
+        duplicate_rows=duplicate_rows,
+        skipped_rows=skipped_lines,
+        alerts=inserted_alerts,
+    )
 
 
 @app.get("/air-quality")
 def get_air_quality_data(start_date: date, end_date: date):
-    """
-    GET air quality data
-    Description: Retrieves air quality data for a specific date range, by date then city.
-    Query Parameters:
-        start_date: The start date in YYYY-MM-DD format.
-        end_date: The end date in YYYY-MM-DD format.
-    """
     validate_dates(start_date, end_date)
     return fetch_rows(READINGS_TABLE, start_date=start_date, end_date=end_date, sort=[DATE_COLUMN, CITY_COLUMN])
 
 
 @app.get("/air-quality/city")
 def get_air_quality_data_by_city(city: str):
-    """
-    GET air quality data by city
-    Description: Retrieves air quality data for a specific city.
-    Query Parameters:
-        city: The name of the city.
-    """
     city = validate_city(city)
     return fetch_rows(READINGS_TABLE, None, city)
 
 
 @app.get("/aqi/history")
 def get_city_aqi_history(city: str):
-    """
-    GET city aqi history
-    Description: Retrieves the AQI history for a specific city.
-    Query Parameters:
-        city: The name of the city.
-    """
     city = validate_city(city)
-    columns = [DATE_COLUMN, CITY_COLUMN, AQI_COLUMN, AQI_LEVEL_COLUMN]
-    return fetch_rows(READINGS_TABLE, columns, city, sort=DATE_COLUMN)
+    return fetch_rows(READINGS_TABLE, AQI_LEVEL_COLUMNS, city, sort=DATE_COLUMN)
 
 
 @app.get("/aqi/average")
 def get_city_aqi_average(city: str):
-    """
-    GET city aqi average
-    Description: Retrieves the AQI average for a specific city.
-    Query Parameters:
-        city: The name of the city.
-    """
     city = validate_city(city)
-    columns = [DATE_COLUMN, CITY_COLUMN, AQI_COLUMN]
-    data = fetch_rows(READINGS_TABLE, columns, city)
+    data = fetch_rows(READINGS_TABLE, [AQI_COLUMN], city)
     aqi_values = [data_point[AQI_COLUMN] for data_point in data]
 
     if not aqi_values:
@@ -252,13 +142,7 @@ def get_city_aqi_average(city: str):
 
 @app.get("/aqi/best-cities")
 def get_best_cities():
-    """
-    GET best cities
-    Description: Retrieves the 3 cities with the best air quality based on the AQI.
-    The best cities will have the lowest AQI values.
-    """
-    # Comment: instructions don't explain the metrics for best air quality
-    # There are multiple dates for each city
+    # The instructions don't define "best", so it's the lowest average AQI over all of a city's dates
     cities = {row[CITY_COLUMN] for row in fetch_rows(READINGS_TABLE, [CITY_COLUMN])}
     city_aqi_averages = [get_city_aqi_average(city) for city in cities]
     city_aqi_averages.sort(key=lambda average: (average[AVERAGE_AQI_KEY], average[CITY_COLUMN]))
@@ -267,24 +151,13 @@ def get_best_cities():
 
 @app.get("/alerts")
 def get_all_alerts():
-    """
-    GET all alerts
-    Description: Retrieves all alerts.
-    """
     return fetch_rows(ALERTS_TABLE)
 
 
 @app.get("/alerts/date")
-def get_alerts_by_date(alert_date: date = Query(alias="date")):
-    """
-    GET all alerts by date
-    Description: Retrieves all alerts from a specific date.
-    Query Parameters:
-        date: The date in YYYY-MM-DD format.
-    """
-    # The query parameter is called "date" (see alias); the variable isn't, so it doesn't hide the `date` type.
+def get_alerts_by_date(alert_date: date = Query(alias="date")):  # noqa: B008
     validate_dates(alert_date)
-    alerts = run_query(
+    alerts = call_database(
         f"read alerts for {alert_date}",
         fetch_rows,
         table=ALERTS_TABLE,
@@ -298,14 +171,7 @@ def get_alerts_by_date(alert_date: date = Query(alias="date")):
 
 @app.get("/alerts/city")
 def get_alerts_by_city(city: str):
-    """
-    GET all alerts by city
-    Description: Retrieves all alerts for a specific city, oldest first.
-    Query Parameters:
-        city: The name of the city. Extra spaces are trimmed; empty or malformed names are rejected (400),
-              and so are cities with no readings at all (404).
-    """
     city = validate_city(city)
-    alerts = run_query(f"read alerts for {city}", fetch_rows, table=ALERTS_TABLE, city=city, sort=DATE_COLUMN)
+    alerts = call_database(f"read alerts for {city}", fetch_rows, table=ALERTS_TABLE, city=city, sort=DATE_COLUMN)
     logger.info(f"Found {len(alerts)} alerts for {city}")
     return alerts

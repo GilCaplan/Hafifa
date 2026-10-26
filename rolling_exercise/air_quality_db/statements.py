@@ -23,6 +23,6 @@ INSERT_ALERT = """
     ON CONFLICT (date, city) DO NOTHING
 """
 
-# Same order as the columns in INSERT_READING / INSERT_ALERT: each %s is filled from these, in this order
+# Fill the %s placeholders above, in order
 READING_COLUMNS = [DATE_COLUMN, CITY_COLUMN, PM25_COLUMN, NO2_COLUMN, CO2_COLUMN, AQI_COLUMN, AQI_LEVEL_COLUMN]
 ALERT_COLUMNS = [DATE_COLUMN, CITY_COLUMN, AQI_COLUMN]

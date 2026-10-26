@@ -1,5 +1,4 @@
 import psycopg
-
 from air_quality_api.const import DATABASE_URL
 
 

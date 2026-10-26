@@ -4,13 +4,10 @@ Extra arguments go to pytest, e.g. python -m tests -v, or python -m tests -k ale
 """
 
 import sys
-from pathlib import Path
 
 import pytest
 
-TESTS_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = TESTS_DIR.parent
-# pytest only finds pytest.ini on its own in the folder it runs from (or above), so point it at setup/
-PYTEST_CONFIG = PROJECT_ROOT / "setup" / "pytest.ini"
+from tests.const import PROJECT_ROOT, PYTEST_CONFIG, TESTS_DIR
 
+# pytest only finds pytest.ini on its own in the folder it runs from (or above), so point it at setup/
 sys.exit(pytest.main(["-c", str(PYTEST_CONFIG), "--rootdir", str(PROJECT_ROOT), str(TESTS_DIR), *sys.argv[1:]]))

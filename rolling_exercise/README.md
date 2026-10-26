@@ -148,11 +148,9 @@ A local Homebrew Postgres uses your macOS username and no password.
 ```bash
 python main.py
 ```
-- Frontend: http://127.0.0.1:8010/ (upload CSVs, browse both tables, call every endpoint and see its logs)
 - API docs: http://127.0.0.1:8010/docs
 - Logs: written to `air_quality_files/logs/air_quality.log` (a relative `LOG_FILE` is relative to the project
-  root, and its folder is created if missing). Every request gets an id, which appears on its log lines and in the
-  `X-Request-ID` response header.
+  root, and its folder is created if missing).
 
 Sample files to upload are in `air_quality_files/input/`.
 
@@ -164,32 +162,33 @@ python -m tests -k alerts  # only tests whose name matches
 ```
 The tests create their own database, `air_quality_test`, from `schema.sql`, and drop it when they finish, so your
 `air_quality` database is never touched. They need the Postgres server running and your user allowed to create
-databases (the default for a local Homebrew install). Each endpoint has basic tests with a few hand-written rows,
-and tests that load the sample files in `air_quality_files/input/`. Tests that simulate the database being down use
-`unittest.mock`.
+databases (the default for a local Homebrew install). The tests upload the sample files in
+`air_quality_files/input/` and compute the expected results from those files. Tests that simulate the database being
+down use `unittest.mock`.
 
 ### Linting and formatting
+Ruff, with its settings in `setup/ruff.toml`. In VS Code, point the Ruff extension at it with
+`"ruff.configuration": "setup/ruff.toml"`. From the command line (in the project root):
 ```bash
-./setup/lint.sh           # apply fixes and formatting, then list what's left
-./setup/lint.sh --check   # only report, change nothing
+ruff check --config setup/ruff.toml --fix .
+ruff format --config setup/ruff.toml .
 ```
-Settings are in `setup/ruff.toml`.
 
 ### Project layout
 | Path | Contents |
 |---|---|
-| `main.py` | Combines the API and the frontend into one app, and starts the server |
+| `main.py` | Starts the server |
 | `air_quality_api/api.py` | The API endpoints |
-| `air_quality_api/utils.py` | CSV validation and cleaning, AQI calculation, input validation, logging setup |
+| `air_quality_api/upload.py` | The CSV upload pipeline: file validation, row cleaning, AQI calculation |
+| `air_quality_api/utils.py` | City and date validation, database error handling |
+| `air_quality_api/logs.py` | Logging setup and the access log for API calls |
 | `air_quality_api/const.py` | Constants and settings read from `setup/.env` |
-| `air_quality_db/` | Database connection (`connection.py`), queries (`queries.py`), fixed SQL statements (`statements.py`) and `schema.sql` |
-| `air_quality_frontend/static/` | The web page (plain HTML, CSS and JavaScript), served at `/` |
-| `air_quality_frontend/routes.py` | Endpoints only the page uses: `GET /logs` and `GET /tables/{table}` |
-| `air_quality_frontend/const.py` | The page's settings: static folder, log parsing, table browsing |
-| `tests/` | The tests: one file per group of endpoints, shared setup in `conftest.py`, test data in `data.py` |
+| `air_quality_db/` | Database connection (`connection.py`), queries (`queries.py`) and their helpers (`utils.py`), fixed SQL statements (`statements.py`) and `schema.sql` |
+| `tests/` | Test database setup and sample uploads (`conftest.py`), the API client and expected sample data (`utils.py`), constants (`const.py`) |
+| `tests/test_cases/` | The tests, one file per group of endpoints |
 | `air_quality_files/input/` | Sample CSV files to upload |
 | `air_quality_files/logs/` | The log file (`air_quality.log`) |
-| `setup/` | `.env`, `requirements.txt`, `pytest.ini`, `ruff.toml` and `lint.sh` |
+| `setup/` | `.env`, `requirements.txt`, `pytest.ini` and `ruff.toml` |
 | `calculate_aqi.py` | The given AQI function |
 
 ### Why PostgreSQL
