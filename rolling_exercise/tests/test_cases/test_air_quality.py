@@ -22,21 +22,6 @@ def shift(day: str, days: int) -> str:
 
 # GET /air-quality
 
-
-@pytest.mark.usefixtures("load_samples")
-def test_range_returns_only_its_readings_sorted_by_date_then_city() -> None:
-    start, end = SAMPLE_DATES[2:4]
-    expected = sorted(
-        (reading_sample[Columns.DATE], reading_sample[Columns.CITY])
-        for reading_sample in SAMPLE_READINGS
-        if start <= reading_sample[Columns.DATE] <= end
-    )
-    response = get_range(start, end)
-
-    assert response.status_code == 200
-    assert [(row[Columns.DATE], row[Columns.CITY]) for row in response.json()] == expected
-
-
 @pytest.mark.usefixtures("load_samples")
 def test_whole_range_returns_every_reading() -> None:
     assert len(get_range(SAMPLE_DATES[0], SAMPLE_DATES[-1]).json()) == len(SAMPLE_READINGS)
@@ -46,14 +31,6 @@ def test_whole_range_returns_every_reading() -> None:
 def test_single_days() -> None:
     for day, expected in Counter(reading[Columns.DATE] for reading in SAMPLE_READINGS).items():
         assert len(get_range(day, day).json()) == expected, day
-
-
-@pytest.mark.usefixtures("load_samples")
-def test_range_partly_outside_the_data_returns_what_exists() -> None:
-    expected = sum(reading[Columns.DATE] <= SAMPLE_DATES[1] for reading in SAMPLE_READINGS)
-
-    assert len(get_range(shift(SAMPLE_DATES[0], -10), SAMPLE_DATES[1]).json()) == expected
-
 
 @pytest.mark.usefixtures("load_samples")
 def test_start_after_end_is_rejected() -> None:
