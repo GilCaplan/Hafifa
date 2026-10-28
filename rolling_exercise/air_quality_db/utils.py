@@ -6,7 +6,7 @@ import pandas as pd
 from psycopg import sql
 
 
-def to_rows(df: pd.DataFrame, columns: list[str]) -> list[tuple]:
+def convert_tuple_list(df: pd.DataFrame, columns: list[str]) -> list[tuple]:
     return list(df[columns].itertuples(index=False, name=None))
 
 

@@ -19,17 +19,15 @@ def upload_summary(
     alerts: int = 0,
     reason: str | None = None,
 ) -> dict:
-    """The upload endpoint's response. `reason` is only included when given."""
-    summary = {
+    """The upload endpoint's response. `reason` explains an upload that saved nothing, e.g. an empty file."""
+    return {
         "filename": filename,
         "inserted_rows": inserted_rows,
         "duplicate_rows": duplicate_rows,
         "skipped_rows": skipped_rows or [],
         "alerts": alerts,
+        "reason": reason,
     }
-    if reason:
-        summary["reason"] = reason
-    return summary
 
 
 def is_csv_file(filename: str | None) -> bool:
@@ -42,13 +40,15 @@ def clean_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_missing_columns(df: pd.DataFrame) -> list[str]:
-    return [column for column in Columns.REQUIRED if column not in df.columns]
+    missing_columns = [column for column in Columns.REQUIRED if column not in df.columns]
+    return missing_columns
 
 
 def coerce_types(df: pd.DataFrame) -> pd.DataFrame:
     """Converts each column to its expected type. Invalid values become NaN."""
     df = df.copy()
     df[Columns.DATE] = pd.to_datetime(df[Columns.DATE], format=Validation.DATE_FORMAT, errors="coerce").dt.date
+    # coerce where values aren't parsed become NaT (Not a Time)
     df[Columns.CITY] = df[Columns.CITY].astype("string").str.strip().replace("", pd.NA)
     for column in Columns.POLLUTANTS:
         values = pd.to_numeric(df[column], errors="coerce")
@@ -59,7 +59,8 @@ def coerce_types(df: pd.DataFrame) -> pd.DataFrame:
 def split_valid_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Splits rows into (valid, invalid). Invalid rows have a missing or invalid value."""
     is_invalid = df[Columns.REQUIRED].isna().any(axis=1)
-    return df[~is_invalid], df[is_invalid]
+    valid = ~is_invalid
+    return df[valid], df[is_invalid]
 
 
 def get_csv_line_numbers(df: pd.DataFrame) -> list[int]:
@@ -104,25 +105,11 @@ def read_upload_csv(file: UploadFile) -> pd.DataFrame | None:
     return df
 
 
-def prepare_readings(df: pd.DataFrame, filename: str | None) -> tuple[pd.DataFrame, pd.DataFrame, list[int]]:
+def prepare_readings(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, list[int]]:
     """
-    Converts types, skips (and logs) invalid rows and adds the AQI.
+    Converts types, skips invalid rows and adds the AQI.
     Returns (readings, alerts, skipped CSV line numbers).
     """
     valid_rows, invalid_rows = split_valid_rows(coerce_types(df[Columns.REQUIRED]))
-
-    skipped_lines = get_csv_line_numbers(invalid_rows)
-    for line in skipped_lines:
-        logger.warning(f"Skipped line {line} in {filename}: missing or invalid values")
-
     readings = add_aqi(valid_rows)
-    alerts = get_alerts(readings)
-    logger.info(f"Calculated AQI for {len(readings)} rows in {filename}, {len(alerts)} alerts")
-    return readings, alerts, skipped_lines
-
-
-def log_duplicates(duplicates: pd.DataFrame, filename: str | None) -> None:
-    """Logs the CSV line of each reading skipped because it was already saved."""
-    lines = get_csv_line_numbers(duplicates)
-    for line, day, city in zip(lines, duplicates[Columns.DATE], duplicates[Columns.CITY], strict=True):
-        logger.warning(f"Skipped line {line} in {filename}: {city} on {day} is already saved")
+    return readings, get_alerts(readings), get_csv_line_numbers(invalid_rows)

@@ -1,5 +1,5 @@
-# Ruff settings for the rolling exercise, used with --config from the project root (or the VS Code extension's
-# "ruff.configuration" setting), so the paths below are relative to the project root.
+# Ruff settings for the rolling exercise. Ruff (the command line and the VS Code extension) finds this file on its own
+# because it's in the project root; the paths below are relative to it.
 line-length = 120
 target-version = "py313"
 cache-dir = ".cache/ruff"

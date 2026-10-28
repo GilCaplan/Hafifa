@@ -1,6 +1,4 @@
-"""Fixed SQL statements used by queries.py, and the DataFrame columns that fill their placeholders."""
-
-from air_quality_api.const import Columns
+"""Fixed SQL statements used by queries.py. Their placeholders are filled from Columns.READING and Columns.ALERT."""
 
 INSERT_READING = """
     INSERT INTO air_quality_readings (date, city, pm25, no2, co2, aqi, aqi_level)
@@ -14,7 +12,3 @@ INSERT_ALERT = """
     VALUES (%s, %s, %s)
     ON CONFLICT (date, city) DO NOTHING
 """
-
-# Fill the %s placeholders above, in order
-READING_COLUMNS = [Columns.DATE, Columns.CITY, Columns.PM25, Columns.NO2, Columns.CO2, Columns.AQI, Columns.AQI_LEVEL]
-ALERT_COLUMNS = [Columns.DATE, Columns.CITY, Columns.AQI]

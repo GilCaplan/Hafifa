@@ -28,6 +28,7 @@ def test_database() -> Iterator[None]:
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
         connection.execute(SCHEMA_FILE.read_text())
     yield
+    # run all tests then continue
     with psycopg.connect(ADMIN_DATABASE_URL, autocommit=True) as admin:
         admin.execute(f"DROP DATABASE {TEST_DATABASE} WITH (FORCE)")
 

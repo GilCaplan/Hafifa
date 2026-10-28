@@ -9,33 +9,29 @@ SETUP_DIR = PROJECT_ROOT / "setup"
 
 
 class Settings(BaseSettings):
-    """Settings from environment variables or setup/.env (a real environment variable wins)."""
+    """Settings from environment variables or setup/.env"""
 
     model_config = SettingsConfigDict(env_file=SETUP_DIR / ".env", extra="ignore")
 
-    host: str = "127.0.0.1"
-    port: int = 8010
-    reload: bool = False  # accepts true/false, 1/0, yes/no, on/off, in any case
-    log_file: Path = Path("air_quality_files/logs/air_quality.log")
-    log_level: str = "INFO"
-    database_url: str  # required
+    # values are in setup/.env
+    host: str
+    port: int
+    reload: bool
+    log_file: Path
+    log_level: str
+    database_url: str
+
+    app_path: str = "air_quality_api.api:app"  # what uvicorn loads
+    log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
     @field_validator("log_file")
     @classmethod
     def resolve_from_project_root(cls, path: Path) -> Path:
-        """A relative log path is relative to the project root, whichever folder the server is started from."""
+        """Keep the logs in the same folder"""
         return PROJECT_ROOT / path
 
 
 settings = Settings()
-
-
-class App:
-    IMPORT_PATH = "air_quality_api.api:app"  # what uvicorn loads
-
-
-class Log:
-    FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 
 class Tables:
@@ -44,7 +40,7 @@ class Tables:
 
 
 class Columns:
-    # CSV columns (after cleaning: stripped and lowercase)
+    # CSV columns
     DATE = "date"
     CITY = "city"
     PM25 = "pm2.5"
@@ -54,25 +50,25 @@ class Columns:
     AQI = "aqi"
     AQI_LEVEL = "aqi_level"
 
-    POLLUTANTS = [PM25, NO2, CO2]  # in calculate_aqi's argument order  # noqa: RUF012
+    POLLUTANTS = [PM25, NO2, CO2]  # noqa: RUF012
     REQUIRED = [DATE, CITY, *POLLUTANTS]  # noqa: RUF012
-    ALERT = [DATE, CITY, AQI]  # noqa: RUF012
     AQI_HISTORY = [DATE, CITY, AQI, AQI_LEVEL]  # noqa: RUF012
+    # The INSERT statements' columns, in order (see air_quality_db/statements.py)
+    READING = [DATE, CITY, PM25, NO2, CO2, AQI, AQI_LEVEL]  # noqa: RUF012
+    ALERT = [DATE, CITY, AQI]  # noqa: RUF012
 
 
 class Validation:
-    """Upload validation"""
+    """Input validation for csv and city strings"""
 
     CSV_EXTENSION = ".csv"
     DATE_FORMAT = "%Y-%m-%d"
     CSV_HEADER_LINES = 1
     MIN_POLLUTANT_VALUE = 0
-
-
-class City:
-    # Words of letters (any language) joined by single spaces, hyphens or apostrophes, e.g. "Be'er Sheva"
-    NAME_REGEX = re.compile(r"^[^\W\d_]+(?:[ '-][^\W\d_]+)*$")
-    MAX_NAME_LENGTH = 100
+    # Words of letters (any language) joined by single spaces,
+    # hyphens or apostrophes, e.g. "Be'er Sheva"
+    CITY_NAME_REGEX = re.compile(r"^[^\W\d_]+(?:[ '-][^\W\d_]+)*$")
+    MAX_CITY_NAME_LENGTH = 100
 
 
 class Aqi:

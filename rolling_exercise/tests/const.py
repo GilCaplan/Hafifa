@@ -19,12 +19,10 @@ TEST_DATABASE = "air_quality_test"
 TEST_DATABASE_URL = f"{SERVER_URL}/{TEST_DATABASE}"
 ADMIN_DATABASE_URL = f"{SERVER_URL}/postgres"
 
-# Upload request
 UPLOAD_PATH = "/air-quality/upload"
 CSV_CONTENT_TYPE = "text/csv"
 
-# Sample readings (see utils.read_sample_file)
-MISSING_VALUES = ("", "NaN")  # a row with one of these is skipped
-FILE_KEY = "file"  # the keys a reading has besides its table columns
+MISSING_VALUES = ("", "NaN")
+FILE_KEY = "file"
 LINE_KEY = "line"
 Reading = dict[str, str | int | float]

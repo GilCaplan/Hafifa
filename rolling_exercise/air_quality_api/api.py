@@ -1,68 +1,20 @@
 import logging
-import time
 from datetime import date
 
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, status
-from fastapi.exception_handlers import (
-    http_exception_handler,
-    request_validation_exception_handler,
-)
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, Query, UploadFile
 
 from air_quality_api.const import Aqi, Columns, Tables
-from air_quality_api.logs import (
-    describe_validation_problem,
-    log_request,
-    setup_logging,
-)
-from air_quality_api.upload import (
-    log_duplicates,
-    prepare_readings,
-    read_upload_csv,
-    upload_summary,
-)
-from air_quality_api.utils import call_database, validate_city, validate_dates
-from air_quality_db.queries import fetch_rows, save_readings
+from air_quality_api.handlers import register_handlers
+from air_quality_api.logs import log_duplicates, log_prepared_readings, setup_logging
+from air_quality_api.upload import prepare_readings, read_upload_csv, upload_summary
+from air_quality_api.utils import validate_city, validate_dates
+from air_quality_db.queries import fetch_rows, save_readings_and_alerts
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
-
-@app.middleware("http")
-async def handle_api_call(request: Request, call_next):
-    """Turns unhandled exceptions into a 500 and logs the call."""
-    start = time.perf_counter()
-    try:
-        response = await call_next(request)
-    except Exception:
-        logger.exception(f"Unexpected error on {request.method} {request.url.path}")
-        response = JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"detail": "Unexpected server error, see the logs for details"},
-        )
-    log_request(request, response.status_code, (time.perf_counter() - start) * 1000)
-    return response
-
-
-@app.exception_handler(RequestValidationError)
-async def handle_validation_error(request: Request, errors: RequestValidationError):
-    """
-    Logs invalid parameters, then returns FastAPI's 422 response.
-    """
-    problems = "; ".join(describe_validation_problem(error) for error in errors.errors())
-    logger.warning(f"Invalid request to {request.url.path}: {problems}")
-    return await request_validation_exception_handler(request, errors)
-
-
-@app.exception_handler(HTTPException)
-async def handle_http_error(request: Request, error: HTTPException):
-    """Logs rejected requests (4xx), then returns FastAPI's usual error response."""
-    if error.status_code < status.HTTP_500_INTERNAL_SERVER_ERROR:
-        logger.warning(f"Rejected {request.url.path}: {error.detail}")
-    return await http_exception_handler(request, error)
+register_handlers(app)  # logging and error responses around every request (see handlers.py)
 
 
 @app.post("/air-quality/upload")
@@ -78,10 +30,9 @@ def upload_air_quality_data(file: UploadFile = File(...)):  # noqa: B008
     if df is None:
         return upload_summary(filename, reason="file is empty")
 
-    readings, alerts, skipped_lines = prepare_readings(df, filename)
-    duplicates, inserted_alerts = call_database(
-        f"save {filename} to the database", save_readings, readings=readings, alerts=alerts
-    )
+    readings, alerts, skipped_lines = prepare_readings(df)
+    log_prepared_readings(skipped_lines, readings, alerts, filename)
+    duplicates, inserted_alerts = save_readings_and_alerts(readings, alerts)
     log_duplicates(duplicates, filename)
 
     duplicate_rows = len(duplicates)
@@ -120,8 +71,8 @@ def get_city_aqi_history(city: str):
 @app.get("/aqi/average")
 def get_city_aqi_average(city: str):
     city = validate_city(city)
-    data = fetch_rows(Tables.READINGS, [Columns.AQI], city)
-    aqi_values = [data_point[Columns.AQI] for data_point in data]
+    city_aqi_data = fetch_rows(Tables.READINGS, [Columns.AQI], city)
+    aqi_values = [data_point[Columns.AQI] for data_point in city_aqi_data]
 
     if not aqi_values:
         logger.info(f"0 readings from the city {city} fetched")
@@ -134,7 +85,9 @@ def get_city_aqi_average(city: str):
 @app.get("/aqi/best-cities")
 def get_best_cities():
     # The instructions don't define "best", so it's the lowest average AQI over all of a city's dates
-    cities = {row[Columns.CITY] for row in fetch_rows(Tables.READINGS, [Columns.CITY])}
+    rows = fetch_rows(Tables.READINGS, [Columns.CITY])
+    cities = {row[Columns.CITY] for row in rows}
+
     city_aqi_averages = [get_city_aqi_average(city) for city in cities]
     city_aqi_averages.sort(key=lambda average: (average[Aqi.AVERAGE_KEY], average[Columns.CITY]))
     return city_aqi_averages[: Aqi.BEST_CITIES_COUNT]
@@ -147,15 +100,8 @@ def get_all_alerts():
 
 @app.get("/alerts/date")
 def get_alerts_by_date(alert_date: date = Query(alias="date")):  # noqa: B008
-    validate_dates(alert_date)
-    alerts = call_database(
-        f"read alerts for {alert_date}",
-        fetch_rows,
-        table=Tables.ALERTS,
-        start_date=alert_date,
-        end_date=alert_date,
-        sort=Columns.CITY,
-    )
+    validate_dates(alert_date, alert_date)
+    alerts = fetch_rows(Tables.ALERTS, start_date=alert_date, end_date=alert_date, sort=Columns.CITY)
     logger.info(f"Found {len(alerts)} alerts on {alert_date}")
     return alerts
 
@@ -163,6 +109,6 @@ def get_alerts_by_date(alert_date: date = Query(alias="date")):  # noqa: B008
 @app.get("/alerts/city")
 def get_alerts_by_city(city: str):
     city = validate_city(city)
-    alerts = call_database(f"read alerts for {city}", fetch_rows, table=Tables.ALERTS, city=city, sort=Columns.DATE)
+    alerts = fetch_rows(Tables.ALERTS, city=city, sort=Columns.DATE)
     logger.info(f"Found {len(alerts)} alerts for {city}")
     return alerts

@@ -4,22 +4,18 @@ import pandas as pd
 from psycopg import sql
 from psycopg.rows import dict_row
 
+from air_quality_api.const import Columns
 from air_quality_db.connection import get_connection
-from air_quality_db.statements import (
-    ALERT_COLUMNS,
-    INSERT_ALERT,
-    INSERT_READING,
-    READING_COLUMNS,
-)
+from air_quality_db.statements import INSERT_ALERT, INSERT_READING
 from air_quality_db.utils import (
     build_columns,
     build_filters,
     build_order_by,
-    to_rows,
+    convert_tuple_list,
 )
 
 
-def save_readings(readings: pd.DataFrame, alerts: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+def save_readings_and_alerts(readings: pd.DataFrame, alerts: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     """
     Saves readings and their alerts in one transaction, skipping readings whose (date, city) is already saved
     and their alerts. `alerts` must share `readings`' index. Returns (skipped readings, number of alerts inserted).
@@ -28,21 +24,15 @@ def save_readings(readings: pd.DataFrame, alerts: pd.DataFrame) -> tuple[pd.Data
         return readings, 0
 
     with get_connection() as connection, connection.cursor() as cursor:
-        cursor.executemany(INSERT_READING, to_rows(readings, READING_COLUMNS), returning=True)
+        cursor.executemany(INSERT_READING, convert_tuple_list(readings, Columns.READING), returning=True)
         # One result per reading, in order: the RETURNING row if it was inserted, nothing if it was a duplicate
-        inserted = []
-        while True:
-            inserted.append(cursor.fetchone() is not None)
-            if not cursor.nextset():
-                break
-        was_inserted = pd.Series(inserted, index=readings.index)
-
-        # .loc selects rows: plain alerts[...] with an empty list would select zero columns instead
-        new_alerts = to_rows(alerts.loc[was_inserted[alerts.index]], ALERT_COLUMNS)
+        was_inserted = pd.Series([cursor.fetchone() is not None for _ in cursor.results()], index=readings.index)
+        not_inserted = ~was_inserted
+        new_alerts = convert_tuple_list(alerts.loc[was_inserted[alerts.index]], Columns.ALERT)
         if new_alerts:
             cursor.executemany(INSERT_ALERT, new_alerts)
 
-    return readings[~was_inserted], len(new_alerts)
+    return readings[not_inserted], len(new_alerts)
 
 
 def fetch_rows(

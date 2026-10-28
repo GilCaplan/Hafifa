@@ -34,6 +34,7 @@ def test_each_sample_file_saves_its_valid_rows() -> None:
             "duplicate_rows": 0,
             "skipped_rows": SAMPLE_SKIPPED_LINES[path.name],
             "alerts": count_alerts(readings),
+            "reason": None,
         }
     assert count_rows(Tables.READINGS) == len(SAMPLE_READINGS)
     assert count_rows(Tables.ALERTS) == count_alerts(SAMPLE_READINGS)
