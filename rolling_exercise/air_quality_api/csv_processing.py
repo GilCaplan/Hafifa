@@ -1,14 +1,12 @@
 """The CSV upload pipeline: reading and validating the file, cleaning its rows and calculating their AQI."""
 
-import logging
-
 import pandas as pd
-from fastapi import HTTPException, UploadFile, status
+from fastapi import UploadFile
 
-from air_quality_api.const import Aqi, Columns, Validation
+from air_quality_api.const import AqiConsts, ColumnSets, Validation
+from air_quality_api.errors import ValidationError
+from air_quality_db.models import Reading
 from calculate_aqi import calculate_aqi
-
-logger = logging.getLogger(__name__)
 
 
 def upload_summary(
@@ -35,22 +33,22 @@ def is_csv_file(filename: str | None) -> bool:
 
 
 def clean_columns(df: pd.DataFrame) -> pd.DataFrame:
-    df.columns = df.columns.str.strip().str.lower()
+    """Strips and lowercases the column names and drops dots, so "PM2.5" matches the database's "pm25"."""
+    df.columns = df.columns.str.strip().str.lower().str.replace(".", "", regex=False)
     return df
 
 
 def get_missing_columns(df: pd.DataFrame) -> list[str]:
-    missing_columns = [column for column in Columns.REQUIRED if column not in df.columns]
+    missing_columns = [column for column in ColumnSets.REQUIRED if column not in df.columns]
     return missing_columns
 
 
 def coerce_types(df: pd.DataFrame) -> pd.DataFrame:
     """Converts each column to its expected type. Invalid values become NaN."""
-    df = df.copy()
-    df[Columns.DATE] = pd.to_datetime(df[Columns.DATE], format=Validation.DATE_FORMAT, errors="coerce").dt.date
+    df[Reading.date.key] = pd.to_datetime(df[Reading.date.key], format=Validation.DATE_FORMAT, errors="coerce").dt.date
     # coerce where values aren't parsed become NaT (Not a Time)
-    df[Columns.CITY] = df[Columns.CITY].astype("string").str.strip().replace("", pd.NA)
-    for column in Columns.POLLUTANTS:
+    df[Reading.city.key] = df[Reading.city.key].astype("string").str.strip().replace("", pd.NA)
+    for column in ColumnSets.POLLUTANTS:
         values = pd.to_numeric(df[column], errors="coerce")
         df[column] = values.where(values >= Validation.MIN_POLLUTANT_VALUE)
     return df
@@ -58,7 +56,7 @@ def coerce_types(df: pd.DataFrame) -> pd.DataFrame:
 
 def split_valid_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Splits rows into (valid, invalid). Invalid rows have a missing or invalid value."""
-    is_invalid = df[Columns.REQUIRED].isna().any(axis=1)
+    is_invalid = df[ColumnSets.REQUIRED].isna().any(axis=1)
     valid = ~is_invalid
     return df[valid], df[is_invalid]
 
@@ -68,48 +66,50 @@ def get_csv_line_numbers(df: pd.DataFrame) -> list[int]:
 
 
 def add_aqi(df: pd.DataFrame) -> pd.DataFrame:
-    results = [calculate_aqi(*row) for row in df[Columns.POLLUTANTS].itertuples(index=False)]
+    results = [calculate_aqi(*row) for row in df[ColumnSets.POLLUTANTS].itertuples(index=False)]
 
     df = df.copy()
-    df[Columns.AQI] = [aqi for aqi, _ in results]
-    df[Columns.AQI_LEVEL] = [level for _, level in results]
+    df[Reading.aqi.key] = [aqi for aqi, _ in results]
+    df[Reading.aqi_level.key] = [level for _, level in results]
     return df
 
 
 def get_alerts(df: pd.DataFrame) -> pd.DataFrame:
-    return df.loc[df[Columns.AQI] > Aqi.ALERT_THRESHOLD, Columns.ALERT]
+    return df.loc[df[Reading.aqi.key] > AqiConsts.ALERT_THRESHOLD, ColumnSets.ALERT]
 
 
 def read_upload_csv(file: UploadFile) -> pd.DataFrame | None:
     """
     Reads an uploaded CSV and cleans its column names. Returns None if the file is empty.
-    Raises 400 if it isn't a CSV, can't be parsed or is missing Columns.REQUIRED.
+    Raises ValidationError if it isn't a CSV, can't be parsed, has two columns with the same cleaned name
+    (e.g. "PM2.5" and "pm25") or is missing ColumnSets.REQUIRED.
     """
     filename = file.filename
     if not is_csv_file(filename):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{filename} is not a CSV file")
+        raise ValidationError(f"{filename} is not a CSV file")
 
     try:
         df = clean_columns(pd.read_csv(file.file))
     except pd.errors.EmptyDataError:
-        logger.warning(f"Skipped {filename}: file is empty")
         return None
     except (pd.errors.ParserError, UnicodeDecodeError) as error:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Could not parse {filename} as CSV ({error})") from error
+        raise ValidationError(f"Could not parse {filename} as CSV ({error})") from error
+
+    duplicate_columns = df.columns[df.columns.duplicated()].unique().tolist()
+    if duplicate_columns:
+        raise ValidationError(f"{filename} has the same column more than once: {duplicate_columns}")
 
     missing_columns = get_missing_columns(df)
     if missing_columns:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, f"Missing columns: {missing_columns}. Expected columns: {Columns.REQUIRED}"
-        )
+        raise ValidationError(f"Missing columns: {missing_columns}. Expected columns: {ColumnSets.REQUIRED}")
     return df
 
 
-def prepare_readings(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, list[int]]:
+def prepare_readings(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Converts types, skips invalid rows and adds the AQI.
-    Returns (readings, alerts, skipped CSV line numbers).
+    Returns (readings, alerts, the invalid rows, with NaN where a value was missing or invalid).
     """
-    valid_rows, invalid_rows = split_valid_rows(coerce_types(df[Columns.REQUIRED]))
+    valid_rows, invalid_rows = split_valid_rows(coerce_types(df[ColumnSets.REQUIRED]))
     readings = add_aqi(valid_rows)
-    return readings, get_alerts(readings), get_csv_line_numbers(invalid_rows)
+    return readings, get_alerts(readings), invalid_rows

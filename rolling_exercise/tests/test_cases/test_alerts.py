@@ -3,14 +3,16 @@
 from datetime import date, timedelta
 from unittest.mock import patch
 
-import psycopg
 import pytest
+from sqlalchemy.exc import OperationalError
 
-from air_quality_api.const import Aqi, Columns
+from air_quality_api.const import AqiConsts
+from air_quality_db.models import Reading
 from tests.const import SAMPLE_FILES
 from tests.utils import SAMPLE_READINGS, client, upload
 
-EXPECTED_ALERTS = [reading for reading in SAMPLE_READINGS if reading[Columns.AQI] > Aqi.ALERT_THRESHOLD]
+DATABASE_DOWN = OperationalError("connect", {}, Exception("connection refused"))
+EXPECTED_ALERTS = [reading for reading in SAMPLE_READINGS if reading[Reading.aqi.key] > AqiConsts.ALERT_THRESHOLD]
 
 
 # GET /alerts
@@ -29,7 +31,7 @@ def test_uploading_twice_does_not_duplicate_alerts() -> None:
 
 @pytest.mark.usefixtures("load_samples")
 def test_alerts_by_date_outside_the_data_is_rejected() -> None:
-    last = max(reading[Columns.DATE] for reading in SAMPLE_READINGS)
+    last = max(reading[Reading.date.key] for reading in SAMPLE_READINGS)
     day_after = str(date.fromisoformat(last) + timedelta(days=1))
 
     assert client.get("/alerts/date", params={"date": day_after}).status_code == 404
@@ -43,8 +45,8 @@ def test_alerts_by_invalid_date_is_rejected() -> None:
 
 
 def test_alerts_by_city_database_unavailable_returns_503() -> None:
-    city = SAMPLE_READINGS[0][Columns.CITY]
-    with patch("air_quality_db.queries.get_connection", side_effect=psycopg.OperationalError("connection refused")):
+    city = SAMPLE_READINGS[0][Reading.city.key]
+    with patch("air_quality_db.queries.get_session", side_effect=DATABASE_DOWN):
         response = client.get("/alerts/city", params={"city": city})
 
     assert response.status_code == 503

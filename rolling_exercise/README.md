@@ -179,13 +179,15 @@ ruff format .
 | Path | Contents |
 |---|---|
 | `main.py` | Starts the server |
-| `air_quality_api/api.py` | The API endpoints |
+| `air_quality_api/api.py` | The API endpoints (routes only: each calls its function in logic.py) |
 | `air_quality_api/handlers.py` | Middleware and error handlers: logs every call and turns errors, including database errors, into responses |
-| `air_quality_api/upload.py` | The CSV upload pipeline: file validation, row cleaning, AQI calculation |
+| `air_quality_api/logic.py` | The logic behind each endpoint (api.py only calls it) |
+| `air_quality_api/csv_processing.py` | The CSV upload pipeline: file validation, row cleaning, AQI calculation |
+| `air_quality_api/errors.py` | The app's own errors (`ValidationError` → 400, `NotFoundError` → 404), turned into responses in handlers.py |
 | `air_quality_api/utils.py` | City and date validation |
 | `air_quality_api/logs.py` | Logging setup, the access log for API calls, and the upload's log messages |
 | `air_quality_api/const.py` | Constants and settings read from `setup/.env` |
-| `air_quality_db/` | Database connection (`connection.py`), queries (`queries.py`) and their helpers (`utils.py`), fixed SQL statements (`statements.py`) and `schema.sql` |
+| `air_quality_db/` | SQLAlchemy models of the two tables (`models.py`), the database engine (`connection.py`), queries (`queries.py`) and their filters (`utils.py`), and `schema.sql`, which creates the tables |
 | `tests/` | Test database setup and sample uploads (`conftest.py`), the API client and expected sample data (`utils.py`), constants (`const.py`) |
 | `tests/test_cases/` | The tests, one file per group of endpoints |
 | `air_quality_files/input/` | Sample CSV files to upload |

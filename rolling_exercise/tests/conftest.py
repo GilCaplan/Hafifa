@@ -8,7 +8,8 @@ from collections.abc import Iterator
 import psycopg
 import pytest
 
-from air_quality_api.const import Tables, settings
+from air_quality_api.const import settings
+from air_quality_db.models import Alert, Reading
 from tests.const import (
     ADMIN_DATABASE_URL,
     SAMPLE_FILES,
@@ -36,7 +37,7 @@ def test_database() -> Iterator[None]:
 @pytest.fixture(autouse=True)
 def empty_tables() -> None:
     with psycopg.connect(settings.database_url, autocommit=True) as connection:
-        connection.execute(f"TRUNCATE {Tables.ALERTS}, {Tables.READINGS} RESTART IDENTITY")
+        connection.execute(f"TRUNCATE {Alert.__tablename__}, {Reading.__tablename__} RESTART IDENTITY")
 
 
 @pytest.fixture

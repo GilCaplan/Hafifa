@@ -25,4 +25,4 @@ CSV_CONTENT_TYPE = "text/csv"
 MISSING_VALUES = ("", "NaN")
 FILE_KEY = "file"
 LINE_KEY = "line"
-Reading = dict[str, str | int | float]
+SampleReading = dict[str, str | int | float]

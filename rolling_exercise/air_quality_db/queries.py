@@ -1,18 +1,13 @@
 from datetime import date
 
 import pandas as pd
-from psycopg import sql
-from psycopg.rows import dict_row
+from sqlalchemy import func, inspect, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import InstrumentedAttribute
 
-from air_quality_api.const import Columns
-from air_quality_db.connection import get_connection
-from air_quality_db.statements import INSERT_ALERT, INSERT_READING
-from air_quality_db.utils import (
-    build_columns,
-    build_filters,
-    build_order_by,
-    convert_tuple_list,
-)
+from air_quality_db.connection import get_session
+from air_quality_db.models import Alert, Reading, Table
+from air_quality_db.utils import build_filters, chunks
 
 
 def save_readings_and_alerts(readings: pd.DataFrame, alerts: pd.DataFrame) -> tuple[pd.DataFrame, int]:
@@ -23,63 +18,74 @@ def save_readings_and_alerts(readings: pd.DataFrame, alerts: pd.DataFrame) -> tu
     if readings.empty:
         return readings, 0
 
-    with get_connection() as connection, connection.cursor() as cursor:
-        cursor.executemany(INSERT_READING, convert_tuple_list(readings, Columns.READING), returning=True)
-        # One result per reading, in order: the RETURNING row if it was inserted, nothing if it was a duplicate
-        was_inserted = pd.Series([cursor.fetchone() is not None for _ in cursor.results()], index=readings.index)
-        not_inserted = ~was_inserted
-        new_alerts = convert_tuple_list(alerts.loc[was_inserted[alerts.index]], Columns.ALERT)
-        if new_alerts:
-            cursor.executemany(INSERT_ALERT, new_alerts)
+    with get_session() as session, session.begin():
+        inserted_keys = set()
+        for chunk in chunks(readings.to_dict("records")):
+            insert_readings = (
+                insert(Reading)
+                .values(chunk)
+                .on_conflict_do_nothing(index_elements=[Reading.date, Reading.city])
+                .returning(Reading.date, Reading.city)
+            )
+            inserted_keys |= {tuple(row) for row in session.execute(insert_readings)}
+        # RETURNING lists only the inserted (date, city) pairs. A pair repeated in the file is inserted once: the first
+        key_columns = [Reading.date.key, Reading.city.key]
+        was_returned = pd.MultiIndex.from_frame(readings[key_columns]).isin(inserted_keys)
+        was_inserted = pd.Series(was_returned, index=readings.index) & ~readings.duplicated(key_columns)
 
-    return readings[not_inserted], len(new_alerts)
+        new_alerts = alerts.loc[was_inserted[alerts.index]]
+        for chunk in chunks(new_alerts.to_dict("records")):
+            session.execute(insert(Alert).values(chunk).on_conflict_do_nothing())
+
+    return readings[~was_inserted], len(new_alerts)
 
 
 def fetch_rows(
-    table: str,
-    columns: list[str] | None = None,
+    table: Table,
+    columns: list[InstrumentedAttribute] | None = None,
     city: str | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
-    sort: str | list[str] | None = None,
+    sort: InstrumentedAttribute | list[InstrumentedAttribute] | None = None,
 ) -> list[dict]:
     """
     Returns list of dictionary per table row by SQL query
-    for input values that are not None.
+    for input values that are not None. `columns` and `sort` are the model's columns, e.g. [Reading.date].
     """
+    query = select(*(columns or inspect(table).columns))\
+                    .where(*build_filters(table, city, start_date, end_date))
+    sort_columns = sort if isinstance(sort, list) else [sort] if sort is not None else []
+    if sort_columns:
+        query = query.order_by(*sort_columns, table.id)
 
-    where, params = build_filters(city, start_date, end_date)
-    query = sql.SQL("SELECT {columns} FROM {table}{where}{order_by}").format(
-        columns=build_columns(columns),
-        table=sql.Identifier(table),
-        where=where,
-        order_by=build_order_by(sort),
-    )
-
-    with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
-        cursor.execute(query, params)
-        return cursor.fetchall()
+    with get_session() as session:
+        return [dict(row) for row in session.execute(query).mappings()]
 
 
 def count_rows(
-    table: str,
+    table: Table,
     city: str | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> int:
     """Returns how many rows of `table` match the filters (same filters as fetch_rows)."""
-    where, params = build_filters(city, start_date, end_date)
-    query = sql.SQL("SELECT count(*) AS total FROM {table}").format(table=sql.Identifier(table)) + where
-
-    with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
-        cursor.execute(query, params)
-        return cursor.fetchone()["total"]
+    query = select(func.count()).select_from(table)\
+                        .where(*build_filters(table, city, start_date, end_date))
+    with get_session() as session:
+        return session.scalar(query)
 
 
-def get_date_range(table: str) -> tuple[date | None, date | None]:
+def get_average_aqi(cities: list[str] | None = None) -> dict[str, float]:
+    """Each city's average AQI over all its readings, as {city: average}: of the given cities, or of all if None."""
+    query = select(Reading.city, func.avg(Reading.aqi)).group_by(Reading.city)
+    if cities is not None:
+        query = query.where(Reading.city.in_(cities))
+    with get_session() as session:
+        return {city: average for city, average in session.execute(query)}
+
+
+def get_date_range(table: Table) -> tuple[date | None, date | None]:
     """Returns the earliest and latest date in `table`, or (None, None) if it's empty."""
-    query = sql.SQL("SELECT min(date) AS first, max(date) AS last FROM {table}").format(table=sql.Identifier(table))
-    with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
-        cursor.execute(query)
-        row = cursor.fetchone()
-    return row["first"], row["last"]
+    with get_session() as session:
+        first, last = session.execute(select(func.min(table.date), func.max(table.date))).one()
+    return first, last

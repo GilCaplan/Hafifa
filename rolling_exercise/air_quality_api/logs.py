@@ -1,27 +1,32 @@
 """Logging setup, the access log for API calls, and the upload's log messages."""
 
 import logging
+from http import HTTPStatus
 
 import pandas as pd
-from fastapi import Request, status
+from fastapi import Request
 from fastapi.routing import APIRoute
 
-from air_quality_api.const import Columns, settings
-from air_quality_api.upload import get_csv_line_numbers
+from air_quality_api.const import Consts, settings
+from air_quality_db.models import Reading
 
 logger = logging.getLogger(__name__)
 
 
 def setup_logging() -> None:
     settings.log_file.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=settings.log_file, level=settings.log_level, format=settings.log_format)
+    logging.basicConfig(filename=settings.log_file, level=settings.log_level, format=Consts.log_format)
 
 
 def get_request_log_level(status_code: int) -> int:
     """ERROR for 5xx responses, WARNING for 4xx, INFO for everything else."""
-    if status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
+    try:
+        response_status = HTTPStatus(status_code)
+    except ValueError:  # a non-standard code, e.g. 499: log it rather than fail the request
+        return logging.WARNING
+    if response_status.is_server_error:
         return logging.ERROR
-    if status_code >= status.HTTP_400_BAD_REQUEST:
+    if response_status.is_client_error:
         return logging.WARNING
     return logging.INFO
 
@@ -44,16 +49,19 @@ def describe_validation_problem(problem: dict) -> str:
 
 
 def log_prepared_readings(
-    skipped_lines: list[int], readings: pd.DataFrame, alerts: pd.DataFrame, filename: str | None
+    invalid_rows: pd.DataFrame,
+    skipped_lines: list[int],
+    readings: pd.DataFrame,
+    alerts: pd.DataFrame,
+    filename: str | None,
 ) -> None:
-    """Logs each skipped CSV line, then how many readings and alerts are ready to save."""
-    for line in skipped_lines:
-        logger.warning(f"Skipped line {line} in {filename}: missing or invalid values")
+    """Logs each skipped CSV line with its bad columns, then how many readings and alerts are ready to save."""
+    for line, (_, is_bad) in zip(skipped_lines, invalid_rows.isna().iterrows(), strict=True):
+        logger.warning(f"Skipped line {line} in {filename}: missing or invalid {', '.join(is_bad[is_bad].index)}")
     logger.info(f"Calculated AQI for {len(readings)} rows in {filename}, {len(alerts)} alerts")
 
 
-def log_duplicates(duplicates: pd.DataFrame, filename: str | None) -> None:
+def log_duplicates(duplicates: pd.DataFrame, lines: list[int], filename: str | None) -> None:
     """Logs the CSV line of each reading skipped because it was already saved."""
-    lines = get_csv_line_numbers(duplicates)
-    for line, day, city in zip(lines, duplicates[Columns.DATE], duplicates[Columns.CITY], strict=True):
+    for line, day, city in zip(lines, duplicates[Reading.date.key], duplicates[Reading.city.key], strict=True):
         logger.warning(f"Skipped line {line} in {filename}: {city} on {day} is already saved")

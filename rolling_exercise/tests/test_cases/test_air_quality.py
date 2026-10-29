@@ -6,10 +6,10 @@ from datetime import date, timedelta
 import pytest
 from httpx import Response
 
-from air_quality_api.const import Columns
+from air_quality_db.models import Reading
 from tests.utils import SAMPLE_READINGS, client
 
-SAMPLE_DATES = sorted({reading[Columns.DATE] for reading in SAMPLE_READINGS})
+SAMPLE_DATES = sorted({reading[Reading.date.key] for reading in SAMPLE_READINGS})
 
 
 def get_range(start_date: str, end_date: str) -> Response:
@@ -22,6 +22,7 @@ def shift(day: str, days: int) -> str:
 
 # GET /air-quality
 
+
 @pytest.mark.usefixtures("load_samples")
 def test_whole_range_returns_every_reading() -> None:
     assert len(get_range(SAMPLE_DATES[0], SAMPLE_DATES[-1]).json()) == len(SAMPLE_READINGS)
@@ -29,8 +30,9 @@ def test_whole_range_returns_every_reading() -> None:
 
 @pytest.mark.usefixtures("load_samples")
 def test_single_days() -> None:
-    for day, expected in Counter(reading[Columns.DATE] for reading in SAMPLE_READINGS).items():
+    for day, expected in Counter(reading[Reading.date.key] for reading in SAMPLE_READINGS).items():
         assert len(get_range(day, day).json()) == expected, day
+
 
 @pytest.mark.usefixtures("load_samples")
 def test_start_after_end_is_rejected() -> None:
@@ -70,17 +72,17 @@ def test_missing_end_date_is_rejected() -> None:
 
 @pytest.mark.usefixtures("load_samples")
 def test_each_city_returns_only_its_readings() -> None:
-    for city, expected in Counter(reading[Columns.CITY] for reading in SAMPLE_READINGS).items():
+    for city, expected in Counter(reading[Reading.city.key] for reading in SAMPLE_READINGS).items():
         rows = client.get("/air-quality/city", params={"city": city}).json()
 
         assert len(rows) == expected, city
-        assert {row[Columns.CITY] for row in rows} == {city}
+        assert {row[Reading.city.key] for row in rows} == {city}
         assert set(rows[0]) == {"id", "date", "city", "pm25", "no2", "co2", "aqi", "aqi_level"}
 
 
 @pytest.mark.usefixtures("load_samples")
 def test_city_name_spaces_are_trimmed() -> None:
-    city = SAMPLE_READINGS[0][Columns.CITY]
-    expected = sum(reading[Columns.CITY] == city for reading in SAMPLE_READINGS)
+    city = SAMPLE_READINGS[0][Reading.city.key]
+    expected = sum(reading[Reading.city.key] == city for reading in SAMPLE_READINGS)
 
     assert len(client.get("/air-quality/city", params={"city": f"   {city}  "}).json()) == expected
