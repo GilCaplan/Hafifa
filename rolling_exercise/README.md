@@ -105,3 +105,102 @@ You will calculate it using a given function "calculate_aqi(pm25, no2, co2)" tha
 
 
 ## Good Luck! (:
+
+---
+
+## Setup and running
+
+### Requirements
+- Python 3.13
+- PostgreSQL 16 (e.g. `brew install postgresql@16 && brew services start postgresql@16` on macOS)
+
+### 1. Install the Python packages
+From this folder (`rolling_exercise/`):
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r setup/requirements.txt
+```
+
+### 2. Create the database and its tables
+```bash
+createdb air_quality
+psql air_quality -f air_quality_db/schema.sql
+```
+This creates two tables: `air_quality_readings` 
+and `alerts` (readings with AQI over 300). Running `schema.sql` again is safe, since it skips tables that already exist.
+
+### 3. Configure `setup/.env`
+Create a `.env` file in the `setup/` folder:
+```
+HOST=127.0.0.1
+PORT=8010
+RELOAD=true
+
+LOG_FILE=air_quality_files/logs/air_quality.log
+LOG_LEVEL=INFO
+
+DATABASE_URL=postgresql://<your-postgres-user>@localhost:5432/air_quality
+```
+All six values are required: the server won't start if one is missing. A local Homebrew Postgres uses your macOS
+username and no password.
+
+### 4. Run the server
+```bash
+python main.py
+```
+- API docs: http://127.0.0.1:8010/docs
+- Logs: written to `air_quality_files/logs/air_quality.log` (a relative `LOG_FILE` is relative to the project
+  root, and its folder is created if missing).
+
+Sample files to upload are in `air_quality_files/input/`.
+
+### Running the tests
+```bash
+python -m tests            # all tests (uses setup/pytest.ini)
+python -m tests -v         # one line per test
+python -m tests -k alerts  # only tests whose name matches
+```
+The tests create their own database, `air_quality_test`, from `schema.sql`, and drop it when they finish, so your
+`air_quality` database is never touched. They need the Postgres server running and your user allowed to create
+databases (the default for a local Homebrew install). The tests upload the sample files in
+`air_quality_files/input/` and compute the expected results from those files. Tests that simulate the database being
+down use `unittest.mock`.
+
+### Linting and formatting
+Ruff, with its settings in `ruff.toml` in the project root. The VS Code Ruff extension finds it on its own; from the
+command line (in the project root):
+```bash
+ruff check --fix .
+ruff format .
+```
+
+### Project layout
+| Path | Contents |
+|---|---|
+| `main.py` | Starts the server |
+| `air_quality_api/api.py` | The API endpoints (routes only: each calls its function in logic.py) |
+| `air_quality_api/handlers.py` | Middleware and error handlers: logs every call and turns errors, including database errors, into responses |
+| `air_quality_api/logic.py` | The logic behind each endpoint (api.py only calls it) |
+| `air_quality_api/csv_processing.py` | The CSV upload pipeline: file validation, row cleaning, AQI calculation |
+| `air_quality_api/errors.py` | The app's own errors (`ValidationError` → 400, `NotFoundError` → 404), turned into responses in handlers.py |
+| `air_quality_api/utils.py` | City and date validation |
+| `air_quality_api/logs.py` | Logging setup, the access log for API calls, and the upload's log messages |
+| `air_quality_api/const.py` | Constants and settings read from `setup/.env` |
+| `air_quality_db/` | SQLAlchemy models of the two tables (`models.py`), the database engine (`connection.py`), queries (`queries.py`) and their filters (`utils.py`), and `schema.sql`, which creates the tables |
+| `tests/` | Test database setup and sample uploads (`conftest.py`), the API client and expected sample data (`utils.py`), constants (`const.py`) |
+| `tests/test_cases/` | The tests, one file per group of endpoints |
+| `air_quality_files/input/` | Sample CSV files to upload |
+| `air_quality_files/logs/` | The log file (`air_quality.log`), and the tests' log (`air_quality_test.log`, emptied on every run) |
+| `setup/` | `.env`, `requirements.txt` and `pytest.ini` |
+| `ruff.toml` | Ruff's lint and format settings |
+| `calculate_aqi.py` | The given AQI function |
+
+### Why PostgreSQL
+- The data is a table: every reading has the same fixed fields (date, city, PM2.5, NO2, CO2, AQI, AQI level).
+- The queries are mostly filtering and aggregation (date ranges, averages per city, best cities), which SQL does
+  directly.
+- Alerts are tied to readings. A foreign key guarantees every alert belongs to a stored reading, and
+  `UNIQUE (date, city)` stops the same city and day from being stored twice.
+- Constraints (`NOT NULL`, `CHECK (aqi > 300)` on alerts, non-negative pollutants) keep invalid data out even if
+  something bypasses the API.
