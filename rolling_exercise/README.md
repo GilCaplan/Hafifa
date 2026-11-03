@@ -111,27 +111,29 @@ You will calculate it using a given function "calculate_aqi(pm25, no2, co2)" tha
 ## Setup and running
 
 ### Requirements
-- Python 3.13
+- [uv](https://docs.astral.sh/uv/) (`brew install uv` on macOS). It installs Python 3.13 for you if it's missing
+  (the version is pinned in `.python-version`).
 - PostgreSQL 16 (e.g. `brew install postgresql@16 && brew services start postgresql@16` on macOS)
 
 ### 1. Install the Python packages
 From this folder (`rolling_exercise/`):
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r setup/requirements.txt
+uv sync
 ```
+This creates `.venv/` and installs the packages in `pyproject.toml` at the exact versions in `uv.lock`, including the
+`dev` group (pytest, httpx2, ruff). To add a package: `uv add <package>` (or `uv add --dev <package>`), which updates
+both files.
 
 ### 2. Create the database and its tables
 ```bash
 createdb air_quality
-psql air_quality -f air_quality_db/schema.sql
+psql air_quality -f app/db/schema.sql
 ```
 This creates two tables: `air_quality_readings` 
-and `alerts` (readings with AQI over 300). Running `schema.sql` again is safe, since it skips tables that already exist.
+and `alerts` (readings with AQI over `AQI_ALERT_THRESHOLD`, 300 by default). Running `schema.sql` again is safe, since it skips tables that already exist.
 
-### 3. Configure `setup/.env`
-Create a `.env` file in the `setup/` folder:
+### 3. Configure `.env`
+Create a `.env` file in the project root (this folder):
 ```
 HOST=127.0.0.1
 PORT=8010
@@ -143,11 +145,16 @@ LOG_LEVEL=INFO
 DATABASE_URL=postgresql://<your-postgres-user>@localhost:5432/air_quality
 ```
 All six values are required: the server won't start if one is missing. A local Homebrew Postgres uses your macOS
-username and no password.
+username and no password. These are optional, with their defaults:
+```
+AQI_ALERT_THRESHOLD=300
+AQI_AVERAGE_DECIMALS=2
+BEST_CITIES_COUNT=3
+```
 
 ### 4. Run the server
 ```bash
-python main.py
+uv run main.py
 ```
 - API docs: http://127.0.0.1:8010/docs
 - Logs: written to `air_quality_files/logs/air_quality.log` (a relative `LOG_FILE` is relative to the project
@@ -157,43 +164,55 @@ Sample files to upload are in `air_quality_files/input/`.
 
 ### Running the tests
 ```bash
-python -m tests            # all tests (uses setup/pytest.ini)
-python -m tests -v         # one line per test
-python -m tests -k alerts  # only tests whose name matches
+uv run pytest            # all tests (settings in pyproject.toml)
+uv run pytest -v         # one line per test case, named after what it tests
+uv run pytest -k alerts  # only cases whose name matches
 ```
 The tests create their own database, `air_quality_test`, from `schema.sql`, and drop it when they finish, so your
 `air_quality` database is never touched. They need the Postgres server running and your user allowed to create
-databases (the default for a local Homebrew install). The tests upload the sample files in
-`air_quality_files/input/` and compute the expected results from those files. Tests that simulate the database being
-down use `unittest.mock`.
+databases (the default for a local Homebrew install).
+
+All the tests are acceptance tests in `tests/test_acceptance.py`: one table per route, where each case lists what it
+tests, its input and the exact status and response body expected. The input is a small CSV in that file, with values
+chosen so every AQI and average is a whole number you can check by hand. The database-down case uses `unittest.mock`.
 
 ### Linting and formatting
-Ruff, with its settings in `ruff.toml` in the project root. The VS Code Ruff extension finds it on its own; from the
+Ruff, with its settings in `pyproject.toml` (under `[tool.ruff]`). The VS Code Ruff extension finds it on its own; from the
 command line (in the project root):
 ```bash
-ruff check --fix .
-ruff format .
+uv run ruff check --fix .
+uv run ruff format .
 ```
 
 ### Project layout
+The app is split in layers: `api/` receives the requests, `logic/` does the work behind each route (validation, CSV
+processing, AQI), and `db/` holds everything that talks to the database.
+
 | Path | Contents |
 |---|---|
 | `main.py` | Starts the server |
-| `air_quality_api/api.py` | The API endpoints (routes only: each calls its function in logic.py) |
-| `air_quality_api/handlers.py` | Middleware and error handlers: logs every call and turns errors, including database errors, into responses |
-| `air_quality_api/logic.py` | The logic behind each endpoint (api.py only calls it) |
-| `air_quality_api/csv_processing.py` | The CSV upload pipeline: file validation, row cleaning, AQI calculation |
-| `air_quality_api/errors.py` | The app's own errors (`ValidationError` → 400, `NotFoundError` → 404), turned into responses in handlers.py |
-| `air_quality_api/utils.py` | City and date validation |
-| `air_quality_api/logs.py` | Logging setup, the access log for API calls, and the upload's log messages |
-| `air_quality_api/const.py` | Constants and settings read from `setup/.env` |
-| `air_quality_db/` | SQLAlchemy models of the two tables (`models.py`), the database engine (`connection.py`), queries (`queries.py`) and their filters (`utils.py`), and `schema.sql`, which creates the tables |
-| `tests/` | Test database setup and sample uploads (`conftest.py`), the API client and expected sample data (`utils.py`), constants (`const.py`) |
-| `tests/test_cases/` | The tests, one file per group of endpoints |
+| `app/main.py` | Creates the FastAPI app: logging, error handlers and the routers |
+| `app/schemas.py` | The response models of every route |
+| `app/api/routes.py` | The endpoints. Each only calls its function in `logic/` |
+| `app/api/handlers.py` | Middleware and error handlers: logs every call and turns errors, including database errors, into responses |
+| `app/logic/upload.py` | The upload: reads the CSV, skips invalid rows, adds the AQI and saves the readings and alerts |
+| `app/logic/csv_processing.py` | Reading an uploaded CSV: file and column validation, finding rows with a missing or invalid value |
+| `app/logic/aqi.py` | Calculating the AQI and picking the alerts, and the AQI history, average and best cities |
+| `app/logic/readings.py`, `alerts.py` | Fetching readings and alerts |
+| `app/logic/validation.py` | City and date validation |
+| `app/core/config.py` | Settings read from `.env` or environment variables |
+| `app/core/constants.py` | Constants: column groups, validation rules, log format |
+| `app/core/errors.py` | The app's own errors (`ValidationError` → 400, `NotFoundError` → 404) |
+| `app/core/logs.py` | Logging setup, the `log_request_time` decorator that logs each API call with its duration |
+| `app/db/` | SQLAlchemy models of the two tables (`models.py`), the database engine (`session.py`), queries (`queries.py`) and their filters (`utils.py`), and `schema.sql`, which creates the tables |
+| `tests/test_acceptance.py` | Every test case, one table per route: what's tested, the input and the expected output |
+| `tests/` | Test database setup (`conftest.py`), pointing the app at it (`__init__.py`), constants (`const.py`) |
 | `air_quality_files/input/` | Sample CSV files to upload |
 | `air_quality_files/logs/` | The log file (`air_quality.log`), and the tests' log (`air_quality_test.log`, emptied on every run) |
-| `setup/` | `.env`, `requirements.txt` and `pytest.ini` |
-| `ruff.toml` | Ruff's lint and format settings |
+| `.env` | Your local settings (not committed) |
+| `pyproject.toml` | The project's Python packages (`dependencies`, and the `dev` group for tests and linting), and the pytest and Ruff settings |
+| `uv.lock` | The exact versions uv installs, generated by uv (don't edit by hand) |
+| `.python-version` | The Python version uv uses (3.13) |
 | `calculate_aqi.py` | The given AQI function |
 
 ### Why PostgreSQL
@@ -202,5 +221,5 @@ ruff format .
   directly.
 - Alerts are tied to readings. A foreign key guarantees every alert belongs to a stored reading, and
   `UNIQUE (date, city)` stops the same city and day from being stored twice.
-- Constraints (`NOT NULL`, `CHECK (aqi > 300)` on alerts, non-negative pollutants) keep invalid data out even if
+- Constraints (`NOT NULL`, non-negative pollutants, AQI between 0 and 500) keep invalid data out even if
   something bypasses the API.

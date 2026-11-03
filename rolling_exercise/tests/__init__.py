@@ -1,7 +1,4 @@
-"""
-Points the app at the test database and a fresh test log file. Python runs this once, before any module in tests/
-(conftest.py included), so it happens before the app's const.py reads these settings and opens the log.
-"""
+"""Runs before any test module, so it points the app at the test database and log before const.py reads them."""
 
 import os
 

@@ -1,4 +1,3 @@
--- One row per city per day, with its pollutants and calculated AQI.
 CREATE TABLE IF NOT EXISTS air_quality_readings (
     id         SERIAL PRIMARY KEY,
     date       DATE NOT NULL,
@@ -13,12 +12,11 @@ CREATE TABLE IF NOT EXISTS air_quality_readings (
 
 CREATE INDEX IF NOT EXISTS idx_air_quality_readings_city ON air_quality_readings (city);
 
--- Readings with AQI over 300. Each alert points to the reading it came from.
 CREATE TABLE IF NOT EXISTS alerts (
     id    SERIAL PRIMARY KEY,
     date  DATE NOT NULL,
     city  TEXT NOT NULL,
-    aqi   DOUBLE PRECISION NOT NULL CHECK (aqi > 300),
+    aqi   DOUBLE PRECISION NOT NULL,
     UNIQUE (date, city),
     FOREIGN KEY (date, city) REFERENCES air_quality_readings (date, city) ON DELETE CASCADE
 );

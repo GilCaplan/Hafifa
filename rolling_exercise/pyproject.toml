@@ -1,0 +1,46 @@
+[project]
+name = "air-quality-api"
+version = "0.1.0"
+description = "API for uploading air quality CSV files, calculating the AQI and querying the results"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi==0.162.0",
+    "uvicorn==0.54.0",
+    "python-multipart==0.0.32",
+    "pandas==3.0.6",
+    "psycopg[binary]==3.3.6",
+    "SQLAlchemy==2.1.6",
+    "python-dotenv==1.2.4",
+    "pydantic-settings==2.16.1",
+    "codetiming==1.4.0",
+    "numpy==2.5.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "httpx2==2.16.0",
+    "ruff==0.17.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+cache_dir = ".cache/pytest"
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+cache-dir = ".cache/ruff"
+# The given AQI function, left as provided
+extend-exclude = ["calculate_aqi.py"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B"]
+# F405 repeats F403 on every name from a star import
+ignore = ["F405"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI declares request parameters with calls in default arguments, e.g. `file: UploadFile = File(...)`
+extend-immutable-calls = ["fastapi.File", "fastapi.Query"]
