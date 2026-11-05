@@ -1,11 +1,26 @@
+import os
 from collections.abc import Iterator
+from pathlib import Path
 
 import psycopg
 import pytest
 
-from app.core.config import settings
-from app.db.models import Alert, Reading
-from tests.const import ADMIN_DATABASE_URL, SCHEMA_FILE, TEST_DATABASE, TEST_DATABASE_URL
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SCHEMA_FILE = PROJECT_ROOT / "app" / "db" / "schema.sql"
+TEST_LOG_FILE = PROJECT_ROOT / "air_quality_files" / "logs" / "air_quality_test.log"
+
+SERVER_URL = "postgresql://localhost:5432"
+TEST_DATABASE = "air_quality_test"
+TEST_DATABASE_URL = f"{SERVER_URL}/{TEST_DATABASE}"
+ADMIN_DATABASE_URL = f"{SERVER_URL}/postgres"
+
+# Must come before the app imports: settings reads these when it's first imported
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+os.environ["LOG_FILE"] = str(TEST_LOG_FILE)
+TEST_LOG_FILE.unlink(missing_ok=True)
+
+from app.db.models import Alert, Reading  # noqa: E402
+from app.support.config import settings  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)

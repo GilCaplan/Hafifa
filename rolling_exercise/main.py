@@ -2,8 +2,8 @@ from typing import Self
 
 import uvicorn
 
-from app.core.config import settings
-from app.core.constants import Consts
+from app.support.config import settings
+from app.support.constants import Consts
 
 
 class Server:

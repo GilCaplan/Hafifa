@@ -11,7 +11,7 @@ from httpx2 import Response
 from sqlalchemy.exc import OperationalError
 
 from app.main import app
-from tests.const import TEST_LOG_FILE
+from app.support.config import settings
 
 client = TestClient(app)
 
@@ -57,6 +57,23 @@ EILAT_ALERT = {"id": 1, "date": "2024-11-19", "city": "Eilat", "aqi": 500.0}
 
 CITY_ROUTES = ["/air-quality/city", "/aqi/history", "/aqi/average", "/alerts/city"]
 LETTERS_ONLY = "can only contain letters, spaces, hyphens and apostrophes"
+BAD_CITIES = [
+    pytest.param(
+        "Atlantis",
+        404,
+        "No readings for city Atlantis. Check the spelling: city names are case-sensitive",
+        id="unknown city",
+    ),
+    pytest.param("   ", 400, "City name is empty", id="empty city"),
+    pytest.param("City123", 400, f"City name 'City123' {LETTERS_ONLY}", id="city with digits"),
+    pytest.param(
+        "Haifa'; DROP TABLE alerts;--",
+        400,
+        f'City name "Haifa\'; DROP TABLE alerts;--" {LETTERS_ONLY}',
+        id="SQL in the city",
+    ),
+    pytest.param("a" * 101, 400, "City name is longer than 100 characters", id="city too long"),
+]
 
 
 def upload(content: str | bytes, filename: str = CSV_NAME) -> Response:
@@ -249,28 +266,6 @@ def test_upload_same_file_again_skips_duplicates() -> None:
         # GET /alerts/city
         pytest.param("/alerts/city", {"city": "Eilat"}, 200, [EILAT_ALERT], id="alerts/city: city with an alert"),
         pytest.param("/alerts/city", {"city": "Haifa"}, 200, [], id="alerts/city: city without alerts"),
-        # Every route that takes a city
-        *(
-            pytest.param(path, {"city": city}, status, {"detail": detail}, id=f"{path}: {case}")
-            for path in CITY_ROUTES
-            for case, city, status, detail in [
-                (
-                    "unknown city",
-                    "Atlantis",
-                    404,
-                    "No readings for city Atlantis. Check the spelling: city names are case-sensitive",
-                ),
-                ("empty city", "   ", 400, "City name is empty"),
-                ("city with digits", "City123", 400, f"City name 'City123' {LETTERS_ONLY}"),
-                (
-                    "SQL in the city",
-                    "Haifa'; DROP TABLE alerts;--",
-                    400,
-                    f'City name "Haifa\'; DROP TABLE alerts;--" {LETTERS_ONLY}',
-                ),
-                ("city too long", "a" * 101, 400, "City name is longer than 100 characters"),
-            ]
-        ),
     ],
 )
 def test_get(path: str, params: dict, expected_status: int, expected_body: dict | list) -> None:
@@ -278,6 +273,19 @@ def test_get(path: str, params: dict, expected_status: int, expected_body: dict 
 
     assert response.status_code == expected_status
     assert response.json() == expected_body
+
+
+# Every route that takes a city
+
+
+@pytest.mark.usefixtures("uploaded")
+@pytest.mark.parametrize("path", CITY_ROUTES)
+@pytest.mark.parametrize(("city", "expected_status", "expected_detail"), BAD_CITIES)
+def test_invalid_city(path: str, city: str, expected_status: int, expected_detail: str) -> None:
+    response = client.get(path, params={"city": city})
+
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": expected_detail}
 
 
 # Special states
@@ -293,7 +301,7 @@ def test_air_quality_with_no_data_yet() -> None:
 def test_actions_are_logged_to_the_file() -> None:
     upload(CSV)
     client.get("/alerts/date", params={"date": "banana"})
-    log = TEST_LOG_FILE.read_text()
+    log = settings.log_file.read_text()
 
     assert "Skipped line 8 in readings.csv: missing or invalid no2" in log
     assert "Skipped line 9 in readings.csv: missing or invalid pm25" in log

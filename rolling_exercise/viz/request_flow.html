@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Request flow</title>
+<style>
+  html, body { margin: 0; background: #fff; }
+  svg { display: block; }
+  text { font-family: Helvetica, Arial, sans-serif; font-size: 13px; fill: #1a1a1a; }
+  .file { font-family: Menlo, Consolas, monospace; font-size: 15px; font-weight: bold; }
+  .note { fill: #666; }
+  .err { fill: #b3261e; }
+  .box { fill: #fff; stroke: #1a1a1a; stroke-width: 1.5; }
+  .frame { fill: #fafafa; stroke: #1a1a1a; stroke-width: 1; stroke-dasharray: 6 4; }
+  .call { fill: none; stroke: #1a1a1a; stroke-width: 1.5; }
+  .raise { fill: none; stroke: #b3261e; stroke-width: 1.5; }
+</style>
+</head>
+<body>
+<svg width="1180" height="790" viewBox="0 0 1180 790" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1a1a1a"/>
+    </marker>
+    <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b3261e"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="36" style="font-size:18px;font-weight:bold">air_quality_api: how a request flows</text>
+
+  <!-- client -->
+  <rect class="box" x="40" y="90" width="120" height="56"/>
+  <text class="file" x="100" y="115" text-anchor="middle">client</text>
+  <text class="note" x="100" y="134" text-anchor="middle">HTTP request</text>
+  <line class="call" x1="160" y1="106" x2="238" y2="106" marker-end="url(#a)"/>
+  <line class="call" x1="238" y1="130" x2="162" y2="130" marker-end="url(#a)"/>
+  <text class="note" x="199" y="100" text-anchor="middle">request</text>
+  <text class="note" x="199" y="146" text-anchor="middle">response</text>
+
+  <!-- handlers frame -->
+  <rect class="frame" x="240" y="60" width="910" height="300"/>
+  <text class="file" x="260" y="90">handlers.py</text>
+  <text class="note" x="260" y="110">wraps every request</text>
+
+  <rect class="box" x="300" y="170" width="180" height="70"/>
+  <text class="file" x="390" y="200" text-anchor="middle">api/routes.py</text>
+  <text class="note" x="390" y="220" text-anchor="middle">the endpoints</text>
+
+  <line class="call" x1="480" y1="205" x2="620" y2="205"/>
+
+  <rect class="box" x="620" y="170" width="200" height="70"/>
+  <text class="file" x="720" y="200" text-anchor="middle">controllers/</text>
+  <text class="note" x="720" y="220" text-anchor="middle">one function per endpoint</text>
+
+  <text class="err" x="300" y="278">errors raised below pass up through controllers and routes</text>
+  <text class="err" x="300" y="296">untouched, and are turned into a response here</text>
+
+  <!-- the handler functions, with the error to status table -->
+  <rect class="box" x="860" y="106" width="280" height="210"/>
+  <text x="880" y="130" class="note">middleware + exception handlers</text>
+  <text x="880" y="154" style="font-weight:bold">error</text>
+  <text x="1120" y="154" text-anchor="end" style="font-weight:bold">response</text>
+  <line x1="880" y1="162" x2="1120" y2="162" stroke="#1a1a1a" stroke-width="1"/>
+  <g font-family="Menlo, Consolas, monospace">
+    <text x="880" y="180" style="font-family:inherit;font-size:12px">ValidationError</text>        <text x="1120" y="180" text-anchor="end">400</text>
+    <text x="880" y="200" style="font-family:inherit;font-size:12px">NotFoundError</text>          <text x="1120" y="200" text-anchor="end">404</text>
+    <text x="880" y="220" style="font-family:inherit;font-size:12px">RequestValidationError</text> <text x="1120" y="220" text-anchor="end">422</text>
+    <text x="880" y="240" style="font-family:inherit;font-size:12px">HTTPException</text>          <text x="1120" y="240" text-anchor="end">404 / 405</text>
+    <text x="880" y="260" style="font-family:inherit;font-size:12px">OperationalError</text>       <text x="1120" y="260" text-anchor="end">503</text>
+    <text x="880" y="280" style="font-family:inherit;font-size:12px">SQLAlchemyError</text>        <text x="1120" y="280" text-anchor="end">500</text>
+    <text x="880" y="300" style="font-family:inherit;font-size:12px">anything else</text>          <text x="1120" y="300" text-anchor="end">500</text>
+  </g>
+
+  <!-- controllers call the helpers; logs.py is only used by handlers.py -->
+  <path class="call" d="M720,240 V338"/>
+  <path class="call" d="M225,338 H795"/>
+  <path class="call" d="M225,338 V668 H250"/>
+  <path class="call" d="M335,338 V480"/>
+  <path class="call" d="M565,338 V480"/>
+  <path class="call" d="M795,338 V480"/>
+  <!-- handlers also log -->
+  <path class="call" d="M1080,316 V480"/>
+
+  <!-- helpers -->
+  <rect class="box" x="250" y="480" width="170" height="80"/>
+  <text class="file" x="335" y="507" text-anchor="middle">csv_processing.py</text>
+  <text class="note" x="335" y="526" text-anchor="middle">reads, finds invalid rows</text>
+  <text class="err" x="335" y="546" text-anchor="middle" style="font-size:11px">ValidationError</text>
+
+  <rect class="box" x="480" y="480" width="170" height="80"/>
+  <text class="file" x="565" y="507" text-anchor="middle">validation.py</text>
+  <text class="note" x="565" y="526" text-anchor="middle">validates city, dates</text>
+  <text class="err" x="565" y="546" text-anchor="middle" style="font-size:11px">ValidationError, NotFoundError</text>
+
+  <rect class="box" x="710" y="480" width="170" height="80"/>
+  <text class="file" x="795" y="507" text-anchor="middle">queries.py</text>
+  <text class="note" x="795" y="526" text-anchor="middle">air_quality_db</text>
+  <text class="err" x="795" y="546" text-anchor="middle" style="font-size:11px">SQLAlchemyError</text>
+
+  <rect class="box" x="940" y="480" width="170" height="80"/>
+  <text class="file" x="1025" y="507" text-anchor="middle">logs.py</text>
+  <text class="note" x="1025" y="526" text-anchor="middle">setup, request timing</text>
+
+  <!-- raises go up to the handlers -->
+  <path class="raise" d="M270,480 V363" marker-end="url(#r)"/>
+  <path class="raise" d="M500,480 V363" marker-end="url(#r)"/>
+  <path class="raise" d="M730,480 V363" marker-end="url(#r)"/>
+
+  <!-- validation checks the DB too -->
+  <line class="call" x1="650" y1="520" x2="710" y2="520"/>
+
+  <!-- below the helpers -->
+  <rect class="box" x="250" y="640" width="170" height="56"/>
+  <text class="file" x="335" y="673" text-anchor="middle">calculate_aqi.py</text>
+
+  <line class="call" x1="795" y1="560" x2="795" y2="640"/>
+  <rect class="box" x="710" y="640" width="170" height="56"/>
+  <text class="file" x="795" y="673" text-anchor="middle">Postgres</text>
+
+  <!-- legend -->
+  <line class="call" x1="40" y1="752" x2="80" y2="752"/>
+  <text x="90" y="756">calls</text>
+  <line class="raise" x1="150" y1="752" x2="190" y2="752" marker-end="url(#r)"/>
+  <text x="200" y="756">raises an error</text>
+</svg>
+</body>
+</html>

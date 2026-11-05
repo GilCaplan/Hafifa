@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Errors and log levels</title>
+<style>
+  html, body { margin: 0; background: #fff; }
+  svg { display: block; }
+  text { font-family: Helvetica, Arial, sans-serif; font-size: 13px; fill: #1a1a1a; }
+  .code { font-family: Menlo, Consolas, monospace; font-size: 12px; }
+  .head { font-weight: bold; }
+  .note { fill: #666; }
+  .err { fill: #b3261e; }
+  .rule { stroke: #1a1a1a; stroke-width: 1; }
+  .sep { stroke: #ddd; stroke-width: 1; }
+</style>
+</head>
+<body>
+<svg width="900" height="590" viewBox="0 0 900 590" xmlns="http://www.w3.org/2000/svg">
+  <text x="40" y="36" style="font-size:18px;font-weight:bold">air_quality_api: errors and log levels</text>
+
+  <!-- errors -->
+  <text x="40" y="84" class="head">raised by</text>
+  <text x="250" y="84" class="head">exception</text>
+  <text x="450" y="84" class="head">handler</text>
+  <text x="680" y="84" class="head">log level</text>
+  <text x="860" y="84" class="head" text-anchor="end">response</text>
+  <line class="rule" x1="40" y1="94" x2="860" y2="94"/>
+
+  <text x="40" y="118">validation.py, csv_processing.py</text>
+  <text x="250" y="118" class="code">ValidationError</text>
+  <text x="450" y="118" class="code">handle_input_error</text>
+  <text x="680" y="118">WARNING</text>
+  <text x="860" y="118" text-anchor="end">400</text>
+
+  <text x="40" y="146">validation.py</text>
+  <text x="250" y="146" class="code">NotFoundError</text>
+  <text x="450" y="146" class="code">handle_input_error</text>
+  <text x="680" y="146">WARNING</text>
+  <text x="860" y="146" text-anchor="end">404</text>
+
+  <text x="40" y="174">FastAPI parameter check</text>
+  <text x="250" y="174" class="code">RequestValidationError</text>
+  <text x="450" y="174" class="code">handle_validation_error</text>
+  <text x="680" y="174">WARNING</text>
+  <text x="860" y="174" text-anchor="end">422</text>
+
+  <text x="40" y="202">FastAPI routing</text>
+  <text x="250" y="202" class="code">HTTPException</text>
+  <text x="450" y="202" class="code">handle_http_error</text>
+  <text x="680" y="202">WARNING</text>
+  <text x="860" y="202" text-anchor="end">404 / 405</text>
+
+  <line class="sep" x1="40" y1="216" x2="860" y2="216"/>
+
+  <text x="40" y="240">Postgres unreachable</text>
+  <text x="250" y="240" class="code">OperationalError</text>
+  <text x="450" y="240" class="code">handle_database_unavailable</text>
+  <text x="680" y="240" class="err">ERROR</text>
+  <text x="860" y="240" text-anchor="end">503</text>
+
+  <text x="40" y="268">queries.py</text>
+  <text x="250" y="268" class="code">SQLAlchemyError</text>
+  <text x="450" y="268" class="code">handle_database_error</text>
+  <text x="680" y="268" class="err">ERROR</text>
+  <text x="860" y="268" text-anchor="end">500</text>
+
+  <text x="40" y="296">anywhere (a bug)</text>
+  <text x="250" y="296" class="code">any other Exception</text>
+  <text x="450" y="296" class="code">handle_api_call</text>
+  <text x="680" y="296" class="err">ERROR <tspan class="note">+ traceback</tspan></text>
+  <text x="860" y="296" text-anchor="end">500</text>
+
+  <line class="rule" x1="40" y1="310" x2="860" y2="310"/>
+
+  <!-- the other log lines -->
+  <text x="40" y="368" class="head">logged by</text>
+  <text x="250" y="368" class="head">when</text>
+  <text x="680" y="368" class="head">log level</text>
+  <line class="rule" x1="40" y1="378" x2="860" y2="378"/>
+
+  <text x="40" y="402" class="code">log_request</text>
+  <text x="250" y="402">an endpoint call answered 2xx</text>
+  <text x="680" y="402">INFO</text>
+
+  <text x="40" y="430" class="code">log_request</text>
+  <text x="250" y="430">an endpoint call answered 4xx</text>
+  <text x="680" y="430">WARNING</text>
+
+  <text x="40" y="458" class="code">log_request</text>
+  <text x="250" y="458">an endpoint call answered 5xx</text>
+  <text x="680" y="458" class="err">ERROR</text>
+
+  <line class="sep" x1="40" y1="472" x2="860" y2="472"/>
+
+  <text x="40" y="496" class="code">controllers/</text>
+  <text x="250" y="496">an endpoint succeeds (one-line summary)</text>
+  <text x="680" y="496">INFO</text>
+
+  <text x="40" y="524" class="code">controllers/upload.py</text>
+  <text x="250" y="524">upload skips an empty file, a bad line or a duplicate</text>
+  <text x="680" y="524">WARNING</text>
+
+  <line class="rule" x1="40" y1="538" x2="860" y2="538"/>
+  <text x="40" y="564" class="note">Docs and unknown paths get no log_request line; an unknown path is logged by handle_http_error only.</text>
+</svg>
+</body>
+</html>

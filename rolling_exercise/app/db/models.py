@@ -12,7 +12,6 @@ class Base(DeclarativeBase):
 
 class Reading(Base):
     __tablename__ = "air_quality_readings"
-    # The uploads' ON CONFLICT (date, city) relies on it
     __table_args__ = (UniqueConstraint("date", "city"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -10,8 +10,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from starlette.exceptions import HTTPException
 
-from app.core.errors import NotFoundError, ValidationError
-from app.core.logs import RequestHandler, describe_validation_problem, log_request_time
+from app.support.errors import NotFoundError, ValidationError
+from app.support.logs import RequestHandler, describe_validation_problem, log_request_time
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,8 @@ async def handle_validation_error(request: Request, errors: RequestValidationErr
 async def handle_http_error(request: Request, error: HTTPException) -> Response:
     if error.status_code < status.HTTP_500_INTERNAL_SERVER_ERROR:
         logger.warning(f"Rejected {request.url.path}: {error.detail}")
+    else:
+        logger.error(f"Server error on {request.method} {request.url.path}: {error.detail}")
 
     return await http_exception_handler(request, error)
 

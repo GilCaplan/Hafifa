@@ -3,8 +3,8 @@ from datetime import date
 
 from sqlalchemy import ColumnElement
 
-from app.core.constants import Consts
 from app.db.models import Table
+from app.support.constants import Consts
 
 
 def chunks(rows: list[dict]) -> Iterator[list[dict]]:

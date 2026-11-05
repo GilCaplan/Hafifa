@@ -6,8 +6,8 @@ from codetiming import Timer
 from fastapi import Request, Response, status
 from fastapi.routing import APIRoute
 
-from app.core.config import settings
-from app.core.constants import Consts
+from app.support.config import settings
+from app.support.constants import Consts
 
 logger = logging.getLogger(__name__)
 

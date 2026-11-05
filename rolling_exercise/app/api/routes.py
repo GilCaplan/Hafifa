@@ -2,7 +2,7 @@ from datetime import date
 
 from fastapi import APIRouter, File, Query, UploadFile
 
-from app.logic import alerts, aqi, readings, upload
+from app.controllers import alerts, aqi, readings, upload
 from app.schemas import AlertResponse, AqiHistoryEntry, CityAverage, ReadingResponse, UploadSummary
 
 router = APIRouter()

@@ -1,9 +1,9 @@
 import logging
 from datetime import date
 
+from app.controllers.validation import validate_city, validate_dates
 from app.db.models import Alert
 from app.db.queries import fetch_rows
-from app.logic.validation import validate_city, validate_dates
 from app.schemas import AlertResponse
 
 logger = logging.getLogger(__name__)

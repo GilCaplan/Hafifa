@@ -1,9 +1,9 @@
 import pandas as pd
 from fastapi import UploadFile
 
-from app.core.constants import ColumnSets, Validation
-from app.core.errors import ValidationError
 from app.db.models import Reading
+from app.support.constants import ColumnSets, Validation
+from app.support.errors import ValidationError
 
 
 def clean_columns(df: pd.DataFrame) -> pd.DataFrame:

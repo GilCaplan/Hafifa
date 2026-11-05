@@ -3,24 +3,20 @@ import logging
 import numpy as np
 import pandas as pd
 
-from app.core.config import settings
-from app.core.constants import ColumnSets
+from app.controllers.validation import validate_city
 from app.db.models import Reading
 from app.db.queries import fetch_rows, get_average_aqi
-from app.logic.validation import validate_city
 from app.schemas import AqiHistoryEntry, CityAverage
+from app.support.config import settings
+from app.support.constants import ColumnSets
 from calculate_aqi import calculate_aqi
 
 logger = logging.getLogger(__name__)
 
-# otypes lets it run on an empty DataFrame (an upload with no valid rows)
-calculate_aqi_vectorized = np.vectorize(calculate_aqi, otypes=[float, object])
-
 
 def add_aqi(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    pollutants = (df[column] for column in ColumnSets.POLLUTANTS)
-    df[Reading.aqi.key], df[Reading.aqi_level.key] = calculate_aqi_vectorized(*pollutants)
+    calculate = np.vectorize(calculate_aqi, otypes=[float, object])
+    df[Reading.aqi.key], df[Reading.aqi_level.key] = calculate(*df[ColumnSets.POLLUTANTS].to_numpy().T)
     return df
 
 
@@ -34,7 +30,9 @@ def to_city_average(city: str, average: float) -> CityAverage:
 
 def get_city_aqi_history(city: str) -> list[AqiHistoryEntry]:
     city = validate_city(city)
-    history = [AqiHistoryEntry.model_validate(row) for row in fetch_rows(Reading, city=city, sort=Reading.date)]
+    history = [
+        AqiHistoryEntry.model_validate(city_data) for city_data in fetch_rows(Reading, city=city, sort=Reading.date)
+    ]
 
     logger.info(f"Found {len(history)} days of AQI history for {city}")
     return history
