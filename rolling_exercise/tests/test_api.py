@@ -306,6 +306,7 @@ def test_actions_are_logged_to_the_file() -> None:
     assert "Skipped line 8 in readings.csv: missing or invalid no2" in log
     assert "Skipped line 9 in readings.csv: missing or invalid pm25" in log
     assert "Saved 6 rows and 1 alerts from readings.csv, 0 duplicates skipped" in log
+    assert "Received a request to upload air quality data from file readings.csv" in log
     assert "POST /air-quality/upload -> 200" in log
     assert "Invalid request to /alerts/date: query.date:" in log
 
